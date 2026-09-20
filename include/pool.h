@@ -41,12 +41,26 @@
     {                                                                   \
         if (entry == NULL)                                              \
             return;                                                     \
-        int offset = entry - &type##_pool.objects[0];                   \
+        uintptr_t address = (uintptr_t)entry;                           \
+        uintptr_t start = (uintptr_t)&type##_pool.objects[0];           \
+        uintptr_t end = (uintptr_t)&type##_pool.objects[capacity];      \
+        if (address < start || address >= end ||                         \
+            (address - start) % sizeof(type) != 0)                      \
+            return;                                                     \
+        int offset = (int)((address - start) / sizeof(type));           \
         bitset_set_idx(type##_pool.bitset, offset, false);              \
     }                                                                   \
     int pool_idx_##type(type* entry)                                    \
     {                                                                   \
-        return entry - &type##_pool.objects[0];                         \
+        if (entry == NULL)                                              \
+            return -1;                                                  \
+        uintptr_t address = (uintptr_t)entry;                           \
+        uintptr_t start = (uintptr_t)&type##_pool.objects[0];           \
+        uintptr_t end = (uintptr_t)&type##_pool.objects[capacity];      \
+        if (address < start || address >= end ||                         \
+            (address - start) % sizeof(type) != 0)                      \
+            return -1;                                                  \
+        return (int)((address - start) / sizeof(type));                 \
     }                                                                   \
     type* pool_at_##type(int idx)                                       \
     {                                                                   \

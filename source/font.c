@@ -4,7 +4,7 @@
 
 #include <stdlib.h>
 
-static const char* FONT_POINT_LOOKUP[] = {
+static const char* s_font_point_lookup[] = {
     FP0_STR,
     FP1_STR,
     FP2_STR,
@@ -20,7 +20,7 @@ static const char* FONT_POINT_LOOKUP[] = {
 const char* get_font_point_str(int val)
 {
     val = abs(val) % 10;
-    return FONT_POINT_LOOKUP[val];
+    return s_font_point_lookup[val];
 }
 
 char digit_char_to_font_point(char digit_char)

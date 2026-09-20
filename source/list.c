@@ -43,7 +43,7 @@ List list_init(void)
 
 void list_clear(List* list)
 {
-    if (list_is_empty(list))
+    if (list == NULL || list_is_empty(list))
         return;
 
     ListItr itr = list_itr_create(list);
@@ -61,12 +61,22 @@ void list_clear(List* list)
 
 bool list_is_empty(const List* list)
 {
-    return list->len == 0;
+    return list == NULL || list->len <= 0;
 }
 
-void list_push_front(List* list, void* data)
+bool list_push_front(List* list, void* data)
 {
+    /*
+     * list_itr_next() uses NULL as its end sentinel, so a NULL data node would
+     * make every later node unreachable to normal callers while len still
+     * reported them.  Reject that structurally-invalid state at the boundary.
+     */
+    if (list == NULL || data == NULL)
+        return false;
+
     ListNode* node = POOL_GET(ListNode);
+    if (node == NULL)
+        return false;
 
     node->data = data;
     node->prev = NULL;
@@ -84,11 +94,17 @@ void list_push_front(List* list, void* data)
     list->head = node;
 
     list->len++;
+    return true;
 }
 
-void list_push_back(List* list, void* data)
+bool list_push_back(List* list, void* data)
 {
+    if (list == NULL || data == NULL)
+        return false;
+
     ListNode* node = POOL_GET(ListNode);
+    if (node == NULL)
+        return false;
     node->data = data;
     node->prev = list->tail;
     node->next = NULL;
@@ -105,10 +121,14 @@ void list_push_back(List* list, void* data)
     list->tail = node;
 
     list->len++;
+    return true;
 }
 
 void list_insert(List* list, void* data, unsigned int idx)
 {
+    if (list == NULL || data == NULL)
+        return;
+
     if (idx >= list->len)
     {
         list_push_back(list, data);
@@ -134,6 +154,8 @@ void list_insert(List* list, void* data, unsigned int idx)
         if (idx == curr_idx++)
         {
             ListNode* node = POOL_GET(ListNode);
+            if (node == NULL)
+                return;
             node->prev = ln->prev;
             node->next = ln;
             ln->prev->next = node;
@@ -147,7 +169,8 @@ void list_insert(List* list, void* data, unsigned int idx)
 
 bool list_swap(List* list, unsigned int idx_a, unsigned int idx_b)
 {
-    if (idx_a >= list->len || idx_b >= list->len)
+    if (list == NULL || idx_a >= (unsigned int)list->len ||
+        idx_b >= (unsigned int)list->len)
         return false;
     if (idx_a == idx_b)
         return true; // swapping with yourself isn't technically an error
@@ -176,6 +199,9 @@ bool list_swap(List* list, unsigned int idx_a, unsigned int idx_b)
     } while (max_idx != curr_idx++);
 
     // Just swap the data pointers
+    if (node_a == NULL || node_b == NULL)
+        return false;
+
     void* tmp = node_a->data;
     node_a->data = node_b->data;
     node_b->data = tmp;
@@ -185,6 +211,9 @@ bool list_swap(List* list, unsigned int idx_a, unsigned int idx_b)
 
 static void s_list_remove_node(List* list, ListNode* node)
 {
+    if (list == NULL || node == NULL || list->len <= 0)
+        return;
+
     if (node->prev && !node->next) // end of list
     {
         node->prev->next = NULL;
@@ -213,12 +242,12 @@ static void s_list_remove_node(List* list, ListNode* node)
 
 int list_get_len(const List* list)
 {
-    return list->len;
+    return list == NULL || list->len < 0 ? 0 : list->len;
 }
 
 void* list_get_at_idx(List* list, unsigned int idx)
 {
-    if (idx >= list_get_len(list))
+    if (list == NULL || idx >= (unsigned int)list_get_len(list))
         return NULL;
 
     int curr_idx = 0;
@@ -236,7 +265,7 @@ void* list_get_at_idx(List* list, unsigned int idx)
 
 bool list_remove_at_idx(List* list, unsigned int idx)
 {
-    if (idx >= list_get_len(list))
+    if (list == NULL || idx >= (unsigned int)list_get_len(list))
         return false;
 
     int len = 0;
@@ -258,7 +287,7 @@ ListItr list_itr_create(List* list)
 {
     ListItr itr = {
         .list = list,
-        .next_node = !list_is_empty(list) ? list->head : NULL,
+        .next_node = list != NULL && !list_is_empty(list) ? list->head : NULL,
         .current_node = NULL,
         .direction = LIST_ITR_FORWARD,
     };
@@ -270,7 +299,7 @@ ListItr rev_list_itr_create(List* list)
 {
     ListItr itr = {
         .list = list,
-        .next_node = !list_is_empty(list) ? list->tail : NULL,
+        .next_node = list != NULL && !list_is_empty(list) ? list->tail : NULL,
         .current_node = NULL,
         .direction = LIST_ITR_REVERSE,
     };
@@ -280,13 +309,15 @@ ListItr rev_list_itr_create(List* list)
 
 void* list_itr_next(ListItr* itr)
 {
+    if (itr == NULL)
+        return NULL;
     ListNode* ln = s_list_itr_node_next(itr);
     return ln ? ln->data : NULL;
 }
 
 static ListNode* s_list_itr_node_next(ListItr* itr)
 {
-    if (!itr->next_node)
+    if (itr == NULL || itr->list == NULL || !itr->next_node)
         return NULL;
 
     itr->current_node = itr->next_node;
@@ -306,7 +337,7 @@ static ListNode* s_list_itr_node_next(ListItr* itr)
 
 void list_itr_remove_current_node(ListItr* itr)
 {
-    if (!itr || !itr->current_node)
+    if (itr == NULL || itr->list == NULL || itr->current_node == NULL)
         return;
     ListNode* tmp_prev = itr->current_node->prev;
     s_list_remove_node(itr->list, itr->current_node);
@@ -315,6 +346,9 @@ void list_itr_remove_current_node(ListItr* itr)
 
 bool list_remove_data(List* list, void* data)
 {
+    if (list == NULL)
+        return false;
+
     ListItr itr = list_itr_create(list);
     ListNode* ln;
 

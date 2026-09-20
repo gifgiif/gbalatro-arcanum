@@ -8,6 +8,7 @@
 #define HAND_H
 
 #include "card.h"
+#include "hand_types.h"
 
 #include <tonc.h>
 
@@ -23,25 +24,6 @@ enum HandState
     HAND_DISCARD,
     HAND_PLAY,
     HAND_PLAYING
-};
-
-enum HandType
-{
-    NONE,
-    HIGH_CARD,
-    PAIR,
-    TWO_PAIR,
-    THREE_OF_A_KIND,
-    STRAIGHT,
-    FLUSH,
-    FULL_HOUSE,
-    FOUR_OF_A_KIND,
-    STRAIGHT_FLUSH,
-    ROYAL_FLUSH,
-    FIVE_OF_A_KIND,
-    FLUSH_HOUSE,
-    FLUSH_FIVE,
-    HAND_TYPE_MAX = FLUSH_FIVE
 };
 
 // clang-format off
@@ -71,10 +53,6 @@ typedef struct ContainedHandTypes
     };
 } ContainedHandTypes;
 // clang-format on
-
-// Misc Hand Functions
-
-const char* get_hand_type_name(enum HandType hand_type);
 
 // Hand Structure Manipulation
 
@@ -216,53 +194,24 @@ void sort_cards(void);
 // Hand Contents Analysis
 
 /**
- * @brief Finds the best flush (set of cards with the same suit) in the given array of played
- *         cards.
- *
- * Normally a Flush is made of 5 cards of the same suit, but this function takes into account
- * the Four Fingers joker which allows for Flushes made of 4 cards only.
- *
- * The cards belonging to that flush will be marked as selected in the out_selection array.
+ * Finds the largest flush (set of cards with the same suit) in the given array of played cards.
+ * Marks the cards belonging to the best flush in the out_selection array.
  *
  * @param played        Array of pointers to CardObject representing played cards.
  * @param top           Index of the top of the played stack.
  * @param min_len       Minimum number of cards required for a flush.
  * @param out_selection Output array of bools; set to true for cards in the best flush, false
- *                       otherwise.
- *
+ * otherwise.
  * @return              The number of cards in the best flush found, or 0 if no flush meets min_len.
  */
 int find_flush_in_played_cards(CardObject** played, int top, int min_len, bool* out_selection);
-
-/**
- * @brief Finds the best straight in the given array of played cards.
- *
- * Normally, a Straight is a set of 5 cards with sequential ranks, but this function takes into
- * account the Four Fingers and Shortcut jokers, which respectively allow for Straights made of
- * 4 cards and with gaps of 1 rank between two cards.
- *
- * The cards belonging to that straight will be marked as selected in the out_selection array.
- *
- * @param played        Array of pointers to CardObject representing played cards.
- * @param top           Index of the top of the played stack.
- * @param min_len       Minimum number of cards required for a straight.
- * @param out_selection Output array of bools; set to true for cards in the best straight, false
- *                       otherwise.
- *
- * @return              The number of cards in the best straight found, or 0 if no straight meets
- *                       min_len.
- */
-int find_straight_in_played_cards(CardObject** played, int top, int min_len, bool* out_selection);
-
-/**
- * @brief This is used for the special case in "Four Fingers" where you can add a pair into a
- *         straight (e.g. AA234 should score all 5 cards)
- *
- * @param played    Array of pointers to CardObject representing played cards.
- * @param top       Index of the top of the played stack.
- * @param selection In/Out array of bools; cards from a straight are already set to true, so we
- *                   add to those the leftover ones that form a pair with an already selected card.
- */
+int find_straight_in_played_cards(
+    CardObject** played,
+    int top,
+    bool shortcut_active,
+    int min_len,
+    bool* out_selection
+);
 void select_paired_cards_in_hand(CardObject** played, int top, bool* selection);
 
 #endif

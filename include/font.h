@@ -45,7 +45,7 @@
 #define FP6_STR "<" // .6
 #define FP7_STR ">" // .7
 #define FP8_STR "_" // .8
-#define FP9_STR ";" // .9
+#define FP9_STR ";" // .9 -- reserved glyph: never use ';' as UI punctuation
 /** @} */
 
 /**

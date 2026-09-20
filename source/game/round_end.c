@@ -2,12 +2,16 @@
 
 #include "affine_background.h"
 #include "affine_background_gfx.h"
+#include "deck_types.h"
+#include "economy_rules.h"
 #include "game.h"
 #include "game_variables.h"
 #include "layout.h"
 #include "state_machine.h"
 #include "timer.h"
 #include "util.h"
+
+#include <limits.h>
 
 enum GameRoundEndStates
 {
@@ -49,50 +53,61 @@ static const BG_POINT CASHOUT_SRC_3X3_RECT_POS =   {5,  29};
 
 static int blind_reward = 0;
 static int hand_reward = 0;
+static bool had_hand_reward = false;
+static bool hand_label_printed = false;
 static int interest_reward = 0;
 static int interest_to_count = 0;
 static int interest_start_time = UNDEFINED;
+static bool interest_label_printed = false;
 
 static int calculate_interest_reward(void);
 
-static void round_end_start(void);
-static void round_end_start_expand_popup(void);
-static void round_end_display_finished_blind(void);
-static void round_end_display_score_min(void);
-static void round_end_update_blind_reward(void);
-static void round_end_panel_exit(void);
-static void round_end_display_rewards(void);
-static void round_end_display_cashout(void);
-static void round_end_dismiss_round_end_panel(void);
+static void game_round_end_start(void);
+static void game_round_end_start_expand_popup(void);
+static void game_round_end_display_finished_blind(void);
+static void game_round_end_display_score_min(void);
+static void game_round_end_update_blind_reward(void);
+static void game_round_end_panel_exit(void);
+static void game_round_end_display_rewards(void);
+static void game_round_end_display_cashout(void);
+static void game_round_end_dismiss_round_end_panel(void);
 
-static void round_end_extend_black_panel_down(int black_panel_bottom);
+static void game_round_end_extend_black_panel_down(int black_panel_bottom);
 
-// clang-format off
-static StateInfo state_info[] =
-{
-    [ROUND_END_START]           = STATE_INFO_UPDATE_FN_ONLY(round_end_start),
-    [START_EXPAND_POPUP]        = STATE_INFO_UPDATE_FN_ONLY(round_end_start_expand_popup),
-    [DISPLAY_FINISHED_BLIND]    = STATE_INFO_UPDATE_FN_ONLY(round_end_display_finished_blind),
-    [DISPLAY_SCORE_MIN]         = STATE_INFO_UPDATE_FN_ONLY(round_end_display_score_min),
-    [UPDATE_BLIND_REWARD]       = STATE_INFO_UPDATE_FN_ONLY(round_end_update_blind_reward),
-    [BLIND_PANEL_EXIT]          = STATE_INFO_UPDATE_FN_ONLY(round_end_panel_exit),
-    [DISPLAY_REWARDS]           = STATE_INFO_UPDATE_FN_ONLY(round_end_display_rewards),
-    [DISPLAY_CASHOUT]           = STATE_INFO_UPDATE_FN_ONLY(round_end_display_cashout),
-    [DISMISS_ROUND_END_PANEL]   = STATE_INFO_UPDATE_FN_ONLY(round_end_dismiss_round_end_panel),
+static StateInfo state_info[] = {
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_start),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_start_expand_popup),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_display_finished_blind),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_display_score_min),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_update_blind_reward),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_panel_exit),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_display_rewards),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_display_cashout),
+    STATE_INFO_UPDATE_FN_ONLY(game_round_end_dismiss_round_end_panel),
 };
-// clang-format on
 
 static StateMachine round_end_sm = STATE_MACHINE_DEFINE(state_info, ROUND_END_STATES_MAX);
 
 static int calculate_interest_reward(void)
 {
-    int reward = (g_game_vars.money / 5) * INTEREST_PER_5;
-    if (reward > MAX_INTEREST)
-        reward = MAX_INTEREST;
-    return reward;
+    return economy_get_interest_reward(
+        g_game_vars.money,
+        deck_allows_interest((enum DeckType)g_game_vars.deck),
+        INTEREST_PER_5,
+        MAX_INTEREST
+    );
 }
 
-static void round_end_start(void)
+static int calculate_hand_reward(void)
+{
+    return deck_get_hand_cashout(
+        (enum DeckType)g_game_vars.deck,
+        g_game_vars.hands,
+        g_game_vars.discards
+    );
+}
+
+static void game_round_end_start(void)
 {
     // Reset static variables to default values upon re-entering the round end state
     if (g_game_vars.timer == TM_RESET_STATIC_VARS)
@@ -101,14 +116,17 @@ static void round_end_start(void)
         state_machine_change_state(&round_end_sm, START_EXPAND_POPUP);
         g_game_vars.timer = TM_ZERO; // Reset the timer
         blind_reward = blind_get_reward(g_game_vars.current_blind);
-        hand_reward = g_game_vars.hands;
+        hand_reward = calculate_hand_reward();
+        had_hand_reward = hand_reward > 0;
+        hand_label_printed = false;
         interest_reward = calculate_interest_reward();
         interest_to_count = interest_reward;
         interest_start_time = UNDEFINED;
+        interest_label_printed = false;
     }
 }
 
-static void round_end_start_expand_popup(void)
+static void game_round_end_start_expand_popup(void)
 {
     main_bg_se_copy_rect_1_tile_vert(POP_MENU_ANIM_RECT, SCREEN_UP);
 
@@ -119,9 +137,15 @@ static void round_end_start_expand_popup(void)
     }
 }
 
-static void round_end_display_finished_blind(void)
+static void game_round_end_display_finished_blind(void)
 {
-    sprite_unhide(g_game_vars.round_end_blind_token);
+    /*
+     * Blind tokens are presentation-only.  A long run can legitimately reach
+     * this screen when OAM allocation failed, so never make the reward flow
+     * depend on the decorative token existing.
+     */
+    if (g_game_vars.round_end_blind_token != NULL)
+        obj_unhide(g_game_vars.round_end_blind_token->obj, ATTR0_REG);
 
     int current_ante = g_game_vars.ante;
 
@@ -151,7 +175,7 @@ static void round_end_display_finished_blind(void)
 
     if (g_game_vars.timer == TM_START_ROUND_END_REWARDS_ANIM)
     {
-        round_end_extend_black_panel_down(ROUND_END_BLACK_PANEL_INIT_BOTTOM_SE);
+        game_round_end_extend_black_panel_down(ROUND_END_BLACK_PANEL_INIT_BOTTOM_SE);
     }
 
     if (g_game_vars.timer >= TM_END_DISPLAY_FIN_BLIND)
@@ -161,7 +185,7 @@ static void round_end_display_finished_blind(void)
     }
 }
 
-static void round_end_display_score_min(void)
+static void game_round_end_display_score_min(void)
 {
     const int timer_offset = g_game_vars.timer - 1;
     const int x_from = 0;
@@ -182,7 +206,7 @@ static void round_end_display_score_min(void)
     }
 }
 
-static void round_end_update_blind_reward(void)
+static void game_round_end_update_blind_reward(void)
 {
     if (g_game_vars.timer % FRAMES(20) != 0)
         return;
@@ -211,14 +235,15 @@ static void round_end_update_blind_reward(void)
     {
         tte_erase_rect_wrapper(BLIND_REWARD_RECT);
         tte_erase_rect_wrapper(BLIND_REQ_TEXT_RECT);
-        sprite_hide(g_game_vars.playing_blind_token);
+        if (g_game_vars.playing_blind_token != NULL)
+            obj_hide(g_game_vars.playing_blind_token->obj);
         affine_background_load_palette(affine_background_gfxPal);
         state_machine_change_state(&round_end_sm, BLIND_PANEL_EXIT);
         g_game_vars.timer = TM_ZERO;
     }
 }
 
-static void round_end_panel_exit(void)
+static void game_round_end_panel_exit(void)
 {
     // TODO: make heads or tails of what's going on here and replace
     // magic numbers.
@@ -246,7 +271,7 @@ static void round_end_panel_exit(void)
     }
 }
 
-static inline void round_end_print_separator_ellipsis(void)
+static inline void game_round_end_print_separator_ellipsis(void)
 {
     int x =
         (ROUND_END_REWARDS_ELLIPSIS_POS.x + g_game_vars.timer - TM_REWARDS_ELLIPSIS_PRINT_START) *
@@ -256,22 +281,24 @@ static inline void round_end_print_separator_ellipsis(void)
     tte_printf("#{P:%d,%d; cx:0x%X000}.", x, y, TTE_WHITE_PB);
 }
 
-// TODO: Allow for more generic rewards and consolidate with round_end_print_interest_reward()
-static inline void round_end_print_hand_reward(int hand_y_offset)
+// TODO: Allow for more generic rewards and consolidate with game_round_end_print_interest_reward()
+static inline void game_round_end_print_hand_reward(int hand_y_offset)
 {
     int hand_y = ROUND_END_REWARDS_ELLIPSIS_POS.y + hand_y_offset;
-    if (g_game_vars.timer == TM_DISPLAY_REWARDS_CONT_WAIT)
+    if (!hand_label_printed && g_game_vars.timer >= TM_DISPLAY_REWARDS_CONT_WAIT)
     {
-        round_end_extend_black_panel_down(hand_y);
+        game_round_end_extend_black_panel_down(hand_y);
 
         tte_printf(
-            "#{P:%lu,%d; cx:0x%X000}%d #{cx:0x%X000}Hands",
+            "#{P:%lu,%d; cx:0x%X000}%d #{cx:0x%X000}%s",
             ROUND_END_REWARD_TEXT_X,
             hand_y * TILE_SIZE,
             TTE_BLUE_PB,
             hand_reward,
-            TTE_WHITE_PB
+            TTE_WHITE_PB,
+            g_game_vars.deck == DECK_TYPE_GREEN ? "Green" : "Hands"
         );
+        hand_label_printed = true;
     }
     // Increment the hand reward text until the hand reward variable is depleted
     else if (g_game_vars.timer > TM_HAND_REWARD_INCR_WAIT &&
@@ -279,11 +306,11 @@ static inline void round_end_print_hand_reward(int hand_y_offset)
     {
         hand_reward--;
         tte_printf(
-            "#{P:%lu, %d; cx:0x%X000}$%ld",
+            "#{P:%lu, %d; cx:0x%X000}$%d",
             ROUND_END_REWARD_AMOUNT_X,
             hand_y * TILE_SIZE,
             TTE_YELLOW_PB,
-            g_game_vars.hands - hand_reward
+            calculate_hand_reward() - hand_reward
         );
         if (hand_reward == 0)
         {
@@ -292,13 +319,13 @@ static inline void round_end_print_hand_reward(int hand_y_offset)
     }
 }
 
-static inline void round_end_print_interest_reward(int interest_y_offset)
+static inline void game_round_end_print_interest_reward(int interest_y_offset)
 {
     int interest_y = ROUND_END_REWARDS_ELLIPSIS_POS.y + interest_y_offset;
 
-    if (g_game_vars.timer == interest_start_time)
+    if (!interest_label_printed && g_game_vars.timer >= interest_start_time)
     {
-        round_end_extend_black_panel_down(interest_y);
+        game_round_end_extend_black_panel_down(interest_y);
 
         tte_printf(
             "#{P:%lu,%d; cx:0x%X000}%d #{cx:0x%X000}Interest",
@@ -308,6 +335,7 @@ static inline void round_end_print_interest_reward(int interest_y_offset)
             interest_reward,
             TTE_WHITE_PB
         );
+        interest_label_printed = true;
     }
     // Increment the interest reward text until the interest reward variable is depleted
     else if (g_game_vars.timer > interest_start_time + TM_REWARD_DISPLAY_INTERVAL &&
@@ -324,17 +352,23 @@ static inline void round_end_print_interest_reward(int interest_y_offset)
     }
 }
 
-static void round_end_display_rewards(void)
+static void game_round_end_display_rewards(void)
 {
     int hand_y_offset = 0;
     int interest_y_offset = 0;
 
-    if (g_game_vars.hands > 0)
+    if (had_hand_reward)
     {
         hand_y_offset = 1;
     }
-    else
+    else if (interest_start_time == UNDEFINED)
     {
+        /*
+         * This path is only for a round that started with no hand payout.
+         * Once the hand animation schedules Interest in the future, do not
+         * overwrite that timestamp on the following frame.  Doing so skipped
+         * the label/panel expansion and made earned Interest look absent.
+         */
         interest_start_time = TM_DISPLAY_REWARDS_CONT_WAIT;
     }
 
@@ -351,32 +385,40 @@ static void round_end_display_rewards(void)
     }
     else if (g_game_vars.timer == TM_START_ROUND_END_REWARDS_ANIM)
     {
-        round_end_extend_black_panel_down(ROUND_END_REWARDS_ELLIPSIS_POS.y);
+        game_round_end_extend_black_panel_down(ROUND_END_REWARDS_ELLIPSIS_POS.y);
     }
     else if (g_game_vars.timer < TM_REWARDS_ELLIPSIS_PRINT_END)
     {
-        round_end_print_separator_ellipsis();
+        game_round_end_print_separator_ellipsis();
     }
     else if (g_game_vars.timer >= TM_DISPLAY_REWARDS_CONT_WAIT && hand_reward > 0)
     {
-        round_end_print_hand_reward(hand_y_offset);
+        game_round_end_print_hand_reward(hand_y_offset);
     }
     else if (interest_start_time != UNDEFINED && g_game_vars.timer >= interest_start_time &&
              interest_to_count > 0)
     {
-        round_end_print_interest_reward(interest_y_offset);
+        game_round_end_print_interest_reward(interest_y_offset);
     }
 }
 
-static inline void round_end_cashout(void)
+static inline void game_round_end_cashout(void)
 {
     // Reward the player
-    g_game_vars.money += g_game_vars.hands + blind_get_reward(g_game_vars.current_blind) +
-                         calculate_interest_reward();
+    int reward = calculate_hand_reward() + blind_get_reward(g_game_vars.current_blind) +
+                 calculate_interest_reward();
+    g_game_vars.money =
+        reward > INT_MAX - g_game_vars.money ? INT_MAX : g_game_vars.money + reward;
     display_money();
 
-    g_game_vars.hands = MAX_HANDS;       // Reset the hands to the maximum
-    g_game_vars.discards = MAX_DISCARDS; // Reset the discards to the maximum
+    g_game_vars.hands = deck_get_hands_per_blind(
+        (enum DeckType)g_game_vars.deck,
+        voucher_get_hands_per_blind(&g_game_vars.vouchers, MAX_HANDS)
+    );
+    g_game_vars.discards = deck_get_discards_per_blind(
+        (enum DeckType)g_game_vars.deck,
+        voucher_get_discards_per_blind(&g_game_vars.vouchers, MAX_DISCARDS)
+    );
     // TODO: these can just be in one spot, passing global to global
     display_hands();    // Set the hands display
     display_discards(); // Set the discards display
@@ -385,14 +427,15 @@ static inline void round_end_cashout(void)
     display_score(g_game_vars.score); // Set the score display
 }
 
-static void round_end_display_cashout()
+static void game_round_end_display_cashout()
 {
     if (g_game_vars.timer == FRAMES(40))
     {
         // Put the "cash out" button onto the round end panel
         main_bg_se_copy_expand_3x3_rect(CASHOUT_DEST_RECT, CASHOUT_SRC_3X3_RECT_POS);
 
-        int cashout_amount = g_game_vars.hands + blind_get_reward(g_game_vars.current_blind) +
+        int cashout_amount = calculate_hand_reward() +
+                             blind_get_reward(g_game_vars.current_blind) +
                              calculate_interest_reward();
 
         bool omit_space = cashout_amount >= 10;
@@ -404,22 +447,30 @@ static void round_end_display_cashout()
             omit_space ? "" : " ",
             cashout_amount
         );
+
+        /*
+         * The permanent Boss card modifier is already visible on the card
+         * itself.  Do not print its generated name on the shared TTE layer:
+         * long rank/modifier strings sat outside the cash-out panel and could
+         * visually survive into the Shop as an oversized blue overlay.
+         */
     }
 
     // Wait until the player presses A to cash out
     else if (g_game_vars.timer > FRAMES(40) && key_hit(SELECT_CARD))
     {
-        round_end_cashout();
+        game_round_end_cashout();
 
         state_machine_change_state(&round_end_sm, DISMISS_ROUND_END_PANEL);
         g_game_vars.timer = TM_ZERO;
 
-        sprite_hide(g_game_vars.round_end_blind_token); // Hide the blind token object
-        tte_erase_rect_wrapper(BLIND_TOKEN_TEXT_RECT);  // Erase the blind token text
+        if (g_game_vars.round_end_blind_token != NULL)
+            obj_hide(g_game_vars.round_end_blind_token->obj);
+        tte_erase_rect_wrapper(BLIND_TOKEN_TEXT_RECT);    // Erase the blind token text
     }
 }
 
-static void round_end_dismiss_round_end_panel(void)
+static void game_round_end_dismiss_round_end_panel(void)
 {
     Rect round_end_down = ROUND_END_MENU_RECT;
     round_end_down.top--;
@@ -432,7 +483,7 @@ static void round_end_dismiss_round_end_panel(void)
     }
 }
 
-static void round_end_extend_black_panel_down(int black_panel_bottom)
+static void game_round_end_extend_black_panel_down(int black_panel_bottom)
 {
     Rect single_line_rect = ROUND_END_MENU_RECT;
     single_line_rect.bottom = black_panel_bottom;
@@ -440,7 +491,7 @@ static void round_end_extend_black_panel_down(int black_panel_bottom)
     main_bg_se_copy_rect_1_tile_vert(single_line_rect, SCREEN_DOWN);
 }
 
-void round_end_change_background(void)
+void game_round_end_change_background(void)
 {
     // Disable window 0 so it doesn't make the cashout menu transparent
     toggle_windows(false, true);
@@ -449,25 +500,37 @@ void round_end_change_background(void)
     tte_erase_rect_wrapper(HAND_SIZE_RECT);
 }
 
-void round_end_on_init(void)
+void game_round_end_on_init(void)
 {
+    /*
+     * TTE text is on its own background and survives state changes. Clear it
+     * before drawing round-end values so shop/alchemy messages cannot leak
+     * into the cash-out screen.
+     */
+    tte_erase_screen();
+    display_status_panel();
     g_game_vars.timer = 0;
     state_machine_register(&round_end_sm);
     state_machine_change_state(&round_end_sm, ROUND_END_START);
 }
 
-void round_end_on_update(void)
+void game_round_end_on_update(void)
 {
     // Substate logic only
 }
 
-void round_end_on_exit(void)
+void game_round_end_on_exit(void)
 {
     // Cleanup blind tokens from this round to avoid accumulating
     // allocated blind sprites each round
     blind_reward = 0;
     hand_reward = 0;
+    had_hand_reward = false;
+    hand_label_printed = false;
     interest_reward = 0;
+    interest_to_count = 0;
+    interest_start_time = UNDEFINED;
+    interest_label_printed = false;
     sprite_destroy(&g_game_vars.playing_blind_token);
     sprite_destroy(&g_game_vars.round_end_blind_token);
     state_machine_remove(&round_end_sm);

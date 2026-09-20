@@ -2,8 +2,15 @@
 
 #include "util.h"
 
+#include <stddef.h>
+
 void bitset_set_idx(Bitset* bitset, int idx, bool on)
 {
+    if (bitset == NULL || bitset->w == NULL || idx < 0 ||
+        (uint32_t)idx >= bitset->cap)
+    {
+        return;
+    }
     uint32_t i = idx / BITSET_BITS_PER_WORD;
     uint32_t b = idx % BITSET_BITS_PER_WORD;
 
@@ -26,9 +33,21 @@ void bitset_set_idx(Bitset* bitset, int idx, bool on)
 
 int bitset_set_next_free_idx(Bitset* bitset)
 {
+    if (bitset == NULL || bitset->w == NULL)
+        return UNDEFINED;
+
     for (uint32_t i = 0; i < bitset->nwords; i++)
     {
         uint32_t inv = ~bitset->w[i];
+        uint32_t first_idx = i * BITSET_BITS_PER_WORD;
+        uint32_t remaining_bits =
+            bitset->cap > first_idx ? bitset->cap - first_idx : 0;
+        uint32_t valid_bits =
+            remaining_bits < bitset->nbits ? remaining_bits : bitset->nbits;
+        if (valid_bits == 0)
+            break;
+        if (valid_bits < BITSET_BITS_PER_WORD)
+            inv &= ((uint32_t)1 << valid_bits) - 1U;
 
         // guard so we don't call `ctz` with 0, since __builtin_ctz(0) is undefined
         // https://gcc.gnu.org/onlinedocs/gcc/Bit-Operation-Builtins.html#index-_005f_005fbuiltin_005fctz
@@ -42,9 +61,9 @@ int bitset_set_next_free_idx(Bitset* bitset)
         if (inv)
         {
             int bit = __builtin_ctz(inv);
-            bitset->w[i] |= ((uint32_t)1 << bit);
             int idx = i * BITSET_BITS_PER_WORD + bit;
-            return (idx < bitset->cap) ? idx : UNDEFINED;
+            bitset->w[i] |= ((uint32_t)1 << bit);
+            return idx;
         }
     }
 
@@ -53,6 +72,8 @@ int bitset_set_next_free_idx(Bitset* bitset)
 
 void bitset_clear(Bitset* bitset)
 {
+    if (bitset == NULL || bitset->w == NULL)
+        return;
     for (int i = 0; i < bitset->nwords; i++)
     {
         bitset->w[i] = 0;
@@ -61,6 +82,8 @@ void bitset_clear(Bitset* bitset)
 
 bool bitset_is_empty(Bitset* bitset)
 {
+    if (bitset == NULL || bitset->w == NULL)
+        return true;
     for (int i = 0; i < bitset->nwords; i++)
     {
         if (bitset->w[i])
@@ -71,6 +94,11 @@ bool bitset_is_empty(Bitset* bitset)
 
 bool bitset_get_idx(Bitset* bitset, int idx)
 {
+    if (bitset == NULL || bitset->w == NULL || idx < 0 ||
+        (uint32_t)idx >= bitset->cap)
+    {
+        return false;
+    }
     uint32_t i = idx / BITSET_BITS_PER_WORD;
     uint32_t b = idx % BITSET_BITS_PER_WORD;
 
@@ -79,6 +107,8 @@ bool bitset_get_idx(Bitset* bitset, int idx)
 
 int bitset_num_set_bits(Bitset* bitset)
 {
+    if (bitset == NULL || bitset->w == NULL)
+        return 0;
     int sum = 0;
 
     for (int i = 0; i < bitset->nwords; i++)
@@ -91,6 +121,8 @@ int bitset_num_set_bits(Bitset* bitset)
 
 int bitset_find_idx_of_nth_set(const Bitset* bitset, int n)
 {
+    if (bitset == NULL || bitset->w == NULL || n < 0)
+        return UNDEFINED;
     int tracker = 0;
     int prev_tracker = 0;
 
@@ -139,6 +171,8 @@ BitsetItr bitset_itr_create(const Bitset* bitset)
 
 int bitset_itr_next(BitsetItr* itr)
 {
+    if (itr == NULL || itr->bitset == NULL || itr->bitset->w == NULL)
+        return UNDEFINED;
     // So, worst case scenario for this is one bit at the end of the last
     // word in the bitset. You would look (32 * 7) + 31 times!
     // This can be sped up with by checking if the word is empty first.
@@ -153,14 +187,14 @@ int bitset_itr_next(BitsetItr* itr)
         for (; itr->bit < itr->bitset->nbits; itr->bit++)
         {
             itr->itr++;
-            if (itr->bitset->w[itr->word] & (1 << itr->bit))
+            if (itr->bitset->w[itr->word] & ((uint32_t)1 << itr->bit))
             {
+                int result = itr->itr - 1;
                 // if itr->bit == nbits on the next run, the for loop will handle it
                 itr->bit++;
-                // above we always make it one more than it is
-                // it's so we can return without mutating the actual iterator
-                // once it gets here. Just subtract one
-                return itr->itr - 1;
+                if ((uint32_t)result >= itr->bitset->cap)
+                    break;
+                return result;
             }
         }
         itr->bit = 0;

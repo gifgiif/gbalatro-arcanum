@@ -14,7 +14,7 @@
 /**
  * @brief List of DeckType names, all formatted to be centered in a string of 13 characters.
  */
-static const char DECK_NAMES[DECK_TYPE_MAX][DECK_NAME_LENGTH] = {
+static const char deck_names[DECK_TYPE_MAX][DECK_NAME_LENGTH] = {
     "  Red Deck   ",
     "  Blue Deck  ",
     " Yellow Deck ",
@@ -42,12 +42,15 @@ static const PrintDescCallback deck_description_functions[DECK_TYPE_MAX] = {
 
 void print_deck_name(enum DeckType deck, BG_POINT pos)
 {
-    tte_printf("#{P:%d,%d; cx:0x%X000}%s", pos.x, pos.y, TTE_WHITE_PB, DECK_NAMES[deck]);
+    if ((unsigned int)deck >= DECK_TYPE_MAX)
+        return;
+    tte_printf("#{P:%d,%d; cx:0x%X000}%s", pos.x, pos.y, TTE_WHITE_PB, deck_names[deck]);
 }
 
 void print_deck_description(enum DeckType deck, BG_POINT pos)
 {
-    if (deck_description_functions[deck] == NULL)
+    if ((unsigned int)deck >= DECK_TYPE_MAX ||
+        deck_description_functions[deck] == NULL)
         return;
 
     deck_description_functions[deck](pos);
@@ -172,8 +175,8 @@ static void print_desc_yellow_deck(BG_POINT pos)
  * ```
  * "End of Round:"
  * "             "
- * "-$2 per Hand "
- * "-$2 per Disc."
+ * "+$2 per Hand "
+ * "+$1 per Disc."
  * "-No Interest "
  * ```
  * @param pos position of the rectagle to print the description to
@@ -188,7 +191,7 @@ static void print_desc_green_deck(BG_POINT pos)
         pos.x,
         pos.y + 2 * TILE_SIZE,
         TTE_BLACK_PB,
-        "-",
+        "+",
         TTE_YELLOW_PB,
         "$2 ",
         TTE_BLACK_PB,
@@ -202,7 +205,7 @@ static void print_desc_green_deck(BG_POINT pos)
         pos.x,
         pos.y + 3 * TILE_SIZE,
         TTE_BLACK_PB,
-        "-",
+        "+",
         TTE_YELLOW_PB,
         "$1 ",
         TTE_BLACK_PB,

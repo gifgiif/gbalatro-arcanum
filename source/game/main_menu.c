@@ -78,12 +78,12 @@ static SelectionGrid main_menu_selection_grid = {
 // clang-format on
 
 // Main menu sprite - the ace of spades
-static CardObject* s_main_menu_ace = NULL;
+static CardObject* main_menu_ace = NULL;
 
 // Keep track of last highlighted button
-static enum MainButtons s_last_highlighted_button = PLAY_BTN_IDX;
+static enum MainButtons last_highlighted_button = PLAY_BTN_IDX;
 
-void main_menu_change_background(void)
+void game_main_menu_change_background(void)
 {
     toggle_windows(false, false);
 
@@ -99,42 +99,60 @@ void main_menu_change_background(void)
     }
 }
 
-void main_menu_on_init(void)
+void game_main_menu_on_init(void)
 {
     affine_background_change_background(AFFINE_BG_MAIN_MENU);
     change_background(BG_MAIN_MENU, true);
-    s_main_menu_ace = card_object_new(card_new(SPADES, ACE));
-    card_object_set_sprite(s_main_menu_ace, 0);
-    // TODO: NULL-check sprite
-    s_main_menu_ace->sprite->obj->attr0 |= ATTR0_AFF_DBL;
-    s_main_menu_ace->tscale = float2fx(0.8f);
-    sprite_object_position((SpriteObject*)s_main_menu_ace, MAIN_MENU_ACE_T_X, MAIN_MENU_ACE_T_Y);
+    Card* ace = card_new(SPADES, ACE);
+    main_menu_ace = card_object_new(ace);
+    if (main_menu_ace == NULL)
+    {
+        card_destroy(&ace);
+    }
+    else
+    {
+        card_object_set_sprite(main_menu_ace, 0);
+        if (main_menu_ace->sprite_object != NULL &&
+            main_menu_ace->sprite_object->sprite != NULL)
+        {
+            main_menu_ace->sprite_object->sprite->obj->attr0 |= ATTR0_AFF_DBL;
+            main_menu_ace->sprite_object->tscale = float2fx(0.8f);
+            sprite_object_position(
+                main_menu_ace->sprite_object,
+                MAIN_MENU_ACE_T_X,
+                MAIN_MENU_ACE_T_Y
+            );
+        }
+    }
 
     // Select last highlighted button, Play button by default.
     // e.g. if we return from the options menu, we want the Options button to be highlighted.
-    Selection sel_init = {s_last_highlighted_button, 0};
+    Selection sel_init = {last_highlighted_button, 0};
     main_menu_selection_grid.selection = sel_init;
 
     // Highlight current button
     button_set_highlight(&main_menu_buttons[main_menu_selection_grid.selection.x], true);
 }
 
-void main_menu_on_update(void)
+void game_main_menu_on_update(void)
 {
-    s_main_menu_ace->trotation = lu_sin((g_game_vars.timer << 8) / 2) / 3;
+    if (main_menu_ace != NULL && main_menu_ace->sprite_object != NULL)
+        main_menu_ace->sprite_object->trotation =
+            lu_sin((g_game_vars.timer << 8) / 2) / 3;
 
     selection_grid_process_input(&main_menu_selection_grid);
 }
 
-void main_menu_on_exit(void)
+void game_main_menu_on_exit(void)
 {
     // Save selected button
-    s_last_highlighted_button = main_menu_selection_grid.selection.x;
+    last_highlighted_button = main_menu_selection_grid.selection.x;
 
     // Normally I would just cache these and hide/unhide but I didn't feel like dealing with
     // defining a layer for it
-    card_destroy(&s_main_menu_ace->card);
-    card_object_destroy(&s_main_menu_ace);
+    if (main_menu_ace != NULL)
+        card_destroy(&main_menu_ace->card);
+    card_object_destroy(&main_menu_ace);
 }
 
 // Implement SelectionGrid handler functions
@@ -156,7 +174,6 @@ static bool main_menu_on_selection_changed(
         button_set_highlight(&main_menu_buttons[prev_selection->x], false);
     }
 
-    play_sfx(SFX_BUTTON, MM_BASE_PITCH_RATE, BUTTON_SFX_VOLUME);
     button_set_highlight(&main_menu_buttons[new_selection->x], true);
 
     return true;

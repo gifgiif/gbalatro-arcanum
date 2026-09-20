@@ -200,7 +200,7 @@ int bitset_itr_next(BitsetItr* itr);
     static Bitset name = {                             \
         .w = name##_w,                                 \
         .nbits = BITSET_BITS_PER_WORD,                 \
-        .nwords = BITSET_ARRAY_SIZE,                   \
+        .nwords = ((capacity) + BITSET_BITS_PER_WORD - 1) / BITSET_BITS_PER_WORD, \
         .cap = capacity,                               \
     };
 

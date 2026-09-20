@@ -39,14 +39,13 @@ FONT           := font
 #---------------------------------------------------------------------------------
 ARCH	:=	-mthumb -mthumb-interwork
 
-GIT_DIRTY := $(shell git diff-index --quiet HEAD -- || echo "-dirty")
-GIT_HASH := $(shell git rev-parse --short HEAD || echo "undef")
+GIT_DIRTY := $(shell git diff-index --quiet HEAD -- 2>/dev/null || echo "-dirty")
+GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "undef")
 GIT_C_FLAGS := -DGIT_HASH=\"$(GIT_HASH)\" -DGIT_DIRTY=\"$(GIT_DIRTY)\"
 
 CFLAGS	:= -g -O3 -Wall -Werror -std=gnu23 \
         -mcpu=arm7tdmi -mtune=arm7tdmi \
         -ffast-math -fomit-frame-pointer -funroll-loops \
-		-fms-extensions \
         $(ARCH)
 
 CFLAGS  += $(GIT_C_FLAGS)
@@ -56,6 +55,11 @@ CFLAGS	+=	$(INCLUDE)
 ifeq ($(MGBA_LOGGING),1)
 CFLAGS += -DMGBA_LOGGING
 endif
+
+# Runtime menu: SELECT+B. Release builds keep it disabled; development builds
+# can opt in explicitly with `make DEBUG_MENU=1`.
+DEBUG_MENU ?= 0
+CFLAGS += -DGBALATRO_DEBUG_MENU=$(DEBUG_MENU)
 
 CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
 

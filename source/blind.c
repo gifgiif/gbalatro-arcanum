@@ -1,8 +1,3 @@
-/**
- * @file blind.c
- * @brief Implementation of functions relative to the behaviour and graphics of Blinds.
- */
-
 #include "blind.h"
 
 #include "blind_gfx.h"
@@ -28,11 +23,6 @@
 #define BLIND_TOKENS_PER_SPRITESHEET 2
 #define BLIND_TOKEN_PALETTE_SIZE     8
 
-#define SMALL_BLIND_REWARD    3
-#define BIG_BLIND_REWARD      4
-#define BOSS_BLIND_REWARD     5
-#define SHOWDOWN_BLIND_REWARD 8
-
 static const unsigned int* blind_gfxTiles[] = {
 #define DEF_BLIND_GFX(idx) blind_gfx##idx##Tiles,
 #include "../include/def_blind_gfx_table.h"
@@ -46,53 +36,72 @@ static const unsigned short* blind_gfxPal[] = {
 };
 
 // Bitfields storing blinds we have yet to beat during the current run
-static List s_unbeaten_boss_blinds = LIST_DEFAULT;
-static List s_unbeaten_showdown_blinds = LIST_DEFAULT;
+static List unbeaten_boss_blinds;
+static List unbeaten_showdown_blinds;
 
 // Maps the ante number to the base blind requirement for that ante.
 // The game starts at ante 1 which is at index 1 for base requirement 300.
 // Ante 0 is also there in case it is ever reached.
-static const u32 ANTE_LUT[] = {100, 300, 800, 2000, 5000, 11000, 20000, 35000, 50000};
+static const u32 ante_lut[] = {100, 300, 800, 2000, 5000, 11000, 20000, 35000, 50000};
 
 // clang-format off
-/**
- * @brief Stores an instance of the Blind struct for each BlindType value, ordered in the same way.
- *         Acts the same way the Joker registry does, and may need to go in its own file depending
- *         on how Blind effects are implemented.
- */
-static Blind s_blind_type_map[BLIND_TYPE_MAX] = {
-    {BLIND_TYPE_SMALL,   FIX_ONE         },
-    {BLIND_TYPE_BIG,    (FIX_ONE * 3) / 2},
-    {BLIND_TYPE_HOOK,    FIX_ONE * 2     },
-    {BLIND_TYPE_OX,      FIX_ONE * 2     },
-    {BLIND_TYPE_HOUSE,   FIX_ONE * 2     },
-    {BLIND_TYPE_WHEEL,   FIX_ONE * 2     },
-    {BLIND_TYPE_WALL,    FIX_ONE * 2     }, // x4 score requirement will be part of the effect
-    {BLIND_TYPE_ARM,     FIX_ONE * 2     },
-    {BLIND_TYPE_CLUB,    FIX_ONE * 2     },
-    {BLIND_TYPE_FISH,    FIX_ONE * 2     },
-    {BLIND_TYPE_PSYCHIC, FIX_ONE * 2     },
-    {BLIND_TYPE_GOAD,    FIX_ONE * 2     },
-    {BLIND_TYPE_WATER,   FIX_ONE * 2     },
-    {BLIND_TYPE_WINDOW,  FIX_ONE * 2     },
-    {BLIND_TYPE_MANACLE, FIX_ONE * 2     },
-    {BLIND_TYPE_EYE,     FIX_ONE * 2     },
-    {BLIND_TYPE_MOUTH,   FIX_ONE * 2     },
-    {BLIND_TYPE_PLANT,   FIX_ONE * 2     },
-    {BLIND_TYPE_SERPENT, FIX_ONE * 2     },
-    {BLIND_TYPE_PILLAR,  FIX_ONE * 2     },
-    {BLIND_TYPE_NEEDLE,  FIX_ONE * 2     }, // Same as the Wall with normal requirement
-    {BLIND_TYPE_HEAD,    FIX_ONE * 2     },
-    {BLIND_TYPE_TOOTH,   FIX_ONE * 2     },
-    {BLIND_TYPE_FLINT,   FIX_ONE * 2     },
-    {BLIND_TYPE_MARK,    FIX_ONE * 2     },
-    {BLIND_TYPE_ACORN,   FIX_ONE * 2     },
-    {BLIND_TYPE_LEAF,    FIX_ONE * 2     },
-    {BLIND_TYPE_VESSEL,  FIX_ONE * 2     }, // Same as the Wall with x6 requirement
-    {BLIND_TYPE_HEART,   FIX_ONE * 2     },
-    {BLIND_TYPE_BELL,    FIX_ONE * 2     }
+static Blind _blind_type_map[BLIND_TYPE_MAX] = {
+    {BLIND_TYPE_SMALL,   FIX_ONE,          3},
+    {BLIND_TYPE_BIG,    (FIX_ONE * 3) / 2, 4},
+    {BLIND_TYPE_HOOK,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_OX,      FIX_ONE * 2,      5},
+    {BLIND_TYPE_HOUSE,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_WALL,    FIX_ONE * 2,      5}, // x4 score requirement will be part of the effect
+    {BLIND_TYPE_WHEEL,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_ARM,     FIX_ONE * 2,      5},
+    {BLIND_TYPE_CLUB,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_FISH,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_PSYCHIC, FIX_ONE * 2,      5},
+    {BLIND_TYPE_GOAD,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_WATER,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_WINDOW,  FIX_ONE * 2,      5},
+    {BLIND_TYPE_MANACLE, FIX_ONE * 2,      5},
+    {BLIND_TYPE_EYE,     FIX_ONE * 2,      5},
+    {BLIND_TYPE_MOUTH,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_PLANT,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_SERPENT, FIX_ONE * 2,      5},
+    {BLIND_TYPE_PILLAR,  FIX_ONE * 2,      5},
+    {BLIND_TYPE_NEEDLE,  FIX_ONE * 2,      5}, // Same as the Wall with normal requirement
+    {BLIND_TYPE_HEAD,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_TOOTH,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_FLINT,   FIX_ONE * 2,      5},
+    {BLIND_TYPE_MARK,    FIX_ONE * 2,      5},
+    {BLIND_TYPE_ACORN,   FIX_ONE * 2,      8},
+    {BLIND_TYPE_LEAF,    FIX_ONE * 2,      8},
+    {BLIND_TYPE_VESSEL,  FIX_ONE * 2,      8}, // Same as the Wall with x6 requirement
+    {BLIND_TYPE_HEART,   FIX_ONE * 2,      8},
+    {BLIND_TYPE_BELL,    FIX_ONE * 2,      8}
 };
 // clang-format on
+
+static const char* const blind_names[BLIND_TYPE_MAX] = {
+    "Small Blind", "Big Blind", "The Hook", "The Ox", "The House", "The Wall",
+    "The Wheel", "The Arm", "The Club", "The Fish", "The Psychic", "The Goad",
+    "The Water", "The Window", "The Manacle", "The Eye", "The Mouth", "The Plant",
+    "The Serpent", "The Pillar", "The Needle", "The Head", "The Tooth", "The Flint",
+    "The Mark", "Amber Acorn", "Verdant Leaf", "Violet Vessel", "Crimson Heart",
+    "Cerulean Bell"
+};
+
+static const char* const blind_descriptions[BLIND_TYPE_MAX] = {
+    "Base score", "1.5x base score", "Discard 2 after play",
+    "Best hand sets money $0", "First hand face down", "4x base score",
+    "1 in 7 drawn face down", "Played hand loses level", "Clubs are debuffed",
+    "Draws after play face down", "Must play 5 cards", "Spades are debuffed",
+    "Start with 0 discards", "Diamonds are debuffed", "-1 hand size",
+    "No repeated hand types", "Only one hand type", "Face cards debuffed",
+    "Draw 3 after action", "Ante-played cards debuffed", "Only 1 hand",
+    "Hearts are debuffed", "Lose $1 per card", "Base chips/mult halved",
+    "Face cards face down", "First hand: Jokers hidden", "Cards debuffed until sale",
+    "6x base score", "Random Joker disabled", "One card forced selected"
+};
+_Static_assert(NUM_ELEM_IN_ARR(blind_names) == BLIND_TYPE_MAX);
+_Static_assert(NUM_ELEM_IN_ARR(blind_descriptions) == BLIND_TYPE_MAX);
 
 void blind_init()
 {
@@ -105,41 +114,52 @@ void blind_init()
 
 u32 blind_get_requirement(enum BlindType type, int ante)
 {
+    if ((unsigned int)type >= BLIND_TYPE_MAX)
+        return 0;
+
     // Ensure ante is within valid range
     if (ante < 0 || ante > MAX_ANTE)
         ante = 0;
 
-    return fx2int(s_blind_type_map[type].score_req_multiplier * ANTE_LUT[ante]);
+    FIXED multiplier = _blind_type_map[type].score_req_multipler;
+    if (type == BLIND_TYPE_WALL)
+        multiplier = FIX_ONE * 4;
+    else if (type == BLIND_TYPE_VESSEL)
+        multiplier = FIX_ONE * 6;
+    return fx2int(multiplier * ante_lut[ante]);
 }
 
 int blind_get_reward(enum BlindType type)
 {
-    switch (type)
-    {
-        case BLIND_TYPE_SMALL:
-            return SMALL_BLIND_REWARD;
-        case BLIND_TYPE_BIG:
-            return BIG_BLIND_REWARD;
-        case BLIND_TYPE_BOSS ...(BLIND_TYPE_SHOWDOWN - 1):
-            return BOSS_BLIND_REWARD;
-        default:
-            return SHOWDOWN_BLIND_REWARD;
-    }
+    if ((unsigned int)type >= BLIND_TYPE_MAX)
+        return 0;
+    return _blind_type_map[type].reward;
 }
 
-/**
- * @brief Fill Lists of unbeaten Boss and Showdown Blinds
- *
- *         By keeping track of what Blind we have beaten or not, we can ensure that until we've
- *         beaten all the Blinds in a single Run, we won't encounter the same one twice.
- *
- * This must be called at the beginning of a run.
- *
- * @param showdown toggle between the List for Showdown and regular Boss Blinds
- */
-static void init_unbeaten_blinds_list(bool showdown)
+const char* blind_get_name(enum BlindType type)
 {
-    List* p_unbeaten_blinds = showdown ? &s_unbeaten_showdown_blinds : &s_unbeaten_boss_blinds;
+    return (unsigned int)type < BLIND_TYPE_MAX ? blind_names[type] : "Unknown Blind";
+}
+
+const char* blind_get_description(enum BlindType type)
+{
+    return (unsigned int)type < BLIND_TYPE_MAX ? blind_descriptions[type] : "";
+}
+
+// Fills the unbeaten boss blinds lists
+// This must be called at the beginning of a run
+void init_unbeaten_blinds_list(bool showdown)
+{
+    // create the lists when calling for the first time
+    static bool init = false;
+    if (!init)
+    {
+        init = true;
+        unbeaten_showdown_blinds = list_init();
+        unbeaten_boss_blinds = list_init();
+    }
+
+    List* p_unbeaten_blinds = showdown ? &unbeaten_showdown_blinds : &unbeaten_boss_blinds;
 
     // empty the list just to be sure
     list_clear(p_unbeaten_blinds);
@@ -149,19 +169,42 @@ static void init_unbeaten_blinds_list(bool showdown)
 
     for (int i = lower_blind; i <= upper_blind; i++)
     {
-        list_push_back(p_unbeaten_blinds, &s_blind_type_map[i]);
+        list_push_back(p_unbeaten_blinds, &_blind_type_map[i]);
     }
 }
 
-void init_unbeaten_blinds_lists(void)
+static int blind_min_ante(enum BlindType type)
 {
-    init_unbeaten_blinds_list(false);
-    init_unbeaten_blinds_list(true);
+    switch (type)
+    {
+        case BLIND_TYPE_OX:
+            return 6;
+        case BLIND_TYPE_SERPENT:
+            return 5;
+        case BLIND_TYPE_PLANT:
+            return 4;
+        case BLIND_TYPE_EYE:
+        case BLIND_TYPE_TOOTH:
+            return 3;
+        case BLIND_TYPE_HOUSE:
+        case BLIND_TYPE_WALL:
+        case BLIND_TYPE_WHEEL:
+        case BLIND_TYPE_ARM:
+        case BLIND_TYPE_FISH:
+        case BLIND_TYPE_WATER:
+        case BLIND_TYPE_MOUTH:
+        case BLIND_TYPE_NEEDLE:
+        case BLIND_TYPE_FLINT:
+        case BLIND_TYPE_MARK:
+            return 2;
+        default:
+            return 1;
+    }
 }
 
-enum BlindType roll_blind_type(bool showdown)
+enum BlindType roll_blind_type(bool showdown, int ante)
 {
-    List* p_unbeaten_blinds = showdown ? &s_unbeaten_showdown_blinds : &s_unbeaten_boss_blinds;
+    List* p_unbeaten_blinds = showdown ? &unbeaten_showdown_blinds : &unbeaten_boss_blinds;
 
     // Fill the list with all blinds if it is empty
     // (happens on startup or if we have beaten all blinds)
@@ -171,8 +214,34 @@ enum BlindType roll_blind_type(bool showdown)
     }
 
     // roll a random blind among the unbeaten ones
-    int random_blind_idx = rng_get_u32(RNG_SEQ_BLIND) % list_get_len(p_unbeaten_blinds);
-    Blind* random_blind = list_get_at_idx(p_unbeaten_blinds, random_blind_idx);
+    Blind* eligible[BLIND_TYPE_MAX];
+    int eligible_count = 0;
+    ListItr itr = list_itr_create(p_unbeaten_blinds);
+    Blind* candidate = NULL;
+    while ((candidate = list_itr_next(&itr)))
+        if (showdown || ante >= blind_min_ante(candidate->type))
+            eligible[eligible_count++] = candidate;
+    if (eligible_count == 0)
+    {
+        /*
+         * Rebuilding the linked list can fail when the fixed GBA ListNode
+         * pool is exhausted.  Do not recurse forever in that case: the
+         * static blind table is always available and gives us a safe,
+         * bounded fallback roll.
+         */
+        init_unbeaten_blinds_list(showdown);
+        enum BlindType fallback[BLIND_TYPE_MAX];
+        int fallback_count = 0;
+        int lower_blind = showdown ? BLIND_TYPE_SHOWDOWN : BLIND_TYPE_BOSS;
+        int upper_blind = showdown ? BLIND_TYPE_MAX - 1 : BLIND_TYPE_SHOWDOWN - 1;
+        for (int type = lower_blind; type <= upper_blind; type++)
+            if (showdown || ante >= blind_min_ante(type))
+                fallback[fallback_count++] = type;
+        if (fallback_count == 0)
+            return showdown ? BLIND_TYPE_ACORN : BLIND_TYPE_HOOK;
+        return fallback[rng_get_u32() % fallback_count];
+    }
+    Blind* random_blind = eligible[rng_get_u32() % eligible_count];
 
     return random_blind->type;
 }
@@ -180,7 +249,7 @@ enum BlindType roll_blind_type(bool showdown)
 void set_blind_beaten(enum BlindType type)
 {
     bool showdown = (type >= BLIND_TYPE_SHOWDOWN);
-    List* p_unbeaten_blinds = showdown ? &s_unbeaten_showdown_blinds : &s_unbeaten_boss_blinds;
+    List* p_unbeaten_blinds = showdown ? &unbeaten_showdown_blinds : &unbeaten_boss_blinds;
 
     // find the beaten blind idx in the list
     int beaten_idx = 0;
@@ -217,6 +286,13 @@ static u32 get_blind_spritesheet_idx(enum BlindType type)
 
 u16 blind_get_color(enum BlindType type, enum BlindColorIndex index)
 {
+    if ((unsigned int)type >= BLIND_TYPE_MAX ||
+        index < BLIND_TEXT_COLOR_INDEX ||
+        index > BLIND_BACKGROUND_SHADOW_COLOR_INDEX)
+    {
+        return 0;
+    }
+
     // Do a little translation of palette idx -> custom array idx
     // All blinds before the Mark are arranged in pairs with their palettte split in two
     // | XX |  1 |  2 |  3 |  4 |  5 |  6 |  7 | -> first sprite
@@ -231,6 +307,9 @@ u16 blind_get_color(enum BlindType type, enum BlindColorIndex index)
 
 void apply_blind_colors(enum BlindType type)
 {
+    if ((unsigned int)type >= BLIND_TYPE_MAX)
+        return;
+
     // keep track of active boss blind spritesheet to copy colors only when changing
     static u32 active_boss_spritesheet = BLIND_TYPE_MAX;
     u32 new_spritesheet = get_blind_spritesheet_idx(type);
@@ -251,22 +330,21 @@ void apply_blind_colors(enum BlindType type)
     );
 }
 
-/**
- * @brief Get the starting tile index in tiles memory for the given BlindToken sprite layer
- *
- * @param layer of the BlindToken, as an offset relative to `BLIND_BASE_LAYER`
- *
- * @return the starting tile index of the BlindToken sprite at requested layer
- * @sa BLIND_BASE_LAYER
- */
-static u32 get_layer_tile_index(enum BlindTokenLayers layer)
+static u32 get_layer_tile_index(int layer)
 {
     // All Blind sprites are stored sequentially and correspond to their IDs
     return (BLIND_BASE_LAYER + layer) * BLIND_SPRITE_OFFSET;
 }
 
-void apply_blind_tiles(enum BlindType type, enum BlindTokenLayers layer)
+void apply_blind_tiles(enum BlindType type, int layer)
 {
+    if ((unsigned int)type >= BLIND_TYPE_MAX ||
+        layer < PLAYING_BLIND_TOKEN_LAYER ||
+        layer > BOSS_BLIND_TOKEN_LAYER)
+    {
+        return;
+    }
+
     u32 spritesheet_idx = get_blind_spritesheet_idx(type);
     u32 sprite_idx = (type < BLIND_TYPE_MARK) ? type % BLIND_TOKENS_PER_SPRITESHEET : 0;
     memcpy32(
@@ -278,8 +356,36 @@ void apply_blind_tiles(enum BlindType type, enum BlindTokenLayers layer)
     apply_blind_colors(type);
 }
 
-Sprite* blind_token_new(enum BlindType type, int x, int y, enum BlindTokenLayers layer)
+void blind_token_set_focus(enum BlindType type, int layer, bool focused)
 {
+    if ((unsigned int)type >= BLIND_TYPE_MAX ||
+        layer < PLAYING_BLIND_TOKEN_LAYER || layer > BOSS_BLIND_TOKEN_LAYER)
+    {
+        return;
+    }
+
+    /* Reloading first also removes a contour left by the previous selection. */
+    apply_blind_tiles(type, layer);
+    if (!focused)
+        return;
+
+    obj_tiles_add_outline_4bpp(
+        (u8*)&tile_mem[TILE_MEM_OBJ_CHARBLOCK0_IDX][get_layer_tile_index(layer)],
+        CARD_SPRITE_SIZE,
+        CARD_SPRITE_SIZE,
+        obj_palette_brightest_color_index(get_blind_pb(type))
+    );
+}
+
+Sprite* blind_token_new(enum BlindType type, int x, int y, int layer)
+{
+    if ((unsigned int)type >= BLIND_TYPE_MAX ||
+        layer < PLAYING_BLIND_TOKEN_LAYER ||
+        layer > BOSS_BLIND_TOKEN_LAYER)
+    {
+        return NULL;
+    }
+
     apply_blind_tiles(type, layer);
 
     Sprite* sprite = sprite_new(
@@ -289,6 +395,8 @@ Sprite* blind_token_new(enum BlindType type, int x, int y, enum BlindTokenLayers
         get_blind_pb(type),
         BLIND_BASE_LAYER + layer
     );
+    if (sprite == NULL)
+        return NULL;
     sprite_position(sprite, x, y);
 
     return sprite;

@@ -53,7 +53,7 @@
  * The number of audio channels to allocate for maxmod,
  * passed to mmInitDefault()
  */
-#define GBAL_MM_NUM_CHANNELS 14
+#define GBAL_MM_NUM_CHANNELS 12
 
 /**
  * @brief Play a sound effect, wrapper for mmEffectEx()
@@ -65,6 +65,16 @@
  * @param volume the volume ranging from 0 (silent) to 255 (loudest)
  */
 void play_sfx(mm_word id, mm_word rate, mm_byte volume);
+
+/**
+ * @brief Play a short cursor/button sound without allowing UI sounds to stack.
+ *
+ * Cursor movement can happen every few frames.  Starting another effect for
+ * every movement eventually consumes all spare MaxMod mixer channels and can
+ * make the eight-channel music module audibly skip on GBA-class hardware.
+ * This helper replaces the previous UI sound instead.
+ */
+void play_ui_sfx(mm_word id, mm_word rate, mm_byte volume);
 
 /**
  * @brief Play music at a low pitch and slow tempo (lose screen)

@@ -7,23 +7,13 @@
 #define DECK_TYPES_H
 
 #include "graphic_utils.h"
+#include "deck_rules.h"
 
 #define DECK_SPRITES_PB 1
 
 #define DECK_NAME_LENGTH 14 // 13 chars + '\0'
 #define DECK_DESC_WIDTH  DECK_NAME_LENGTH
 #define DECK_DESC_HEIGHT 5
-
-enum DeckType
-{
-    DECK_TYPE_RED,
-    DECK_TYPE_BLUE,
-    DECK_TYPE_YELLOW,
-    DECK_TYPE_GREEN,
-    DECK_TYPE_BLACK,
-    DECK_TYPE_PAINTED,
-    DECK_TYPE_MAX
-};
 
 /**
  * @brief Prints the Deck name string to the screen at the given position.

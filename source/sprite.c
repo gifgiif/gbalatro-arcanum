@@ -4,8 +4,6 @@
 #include "game.h"
 #include "game_variables.h"
 #include "graphic_utils.h"
-#include "item.h"
-#include "mgba_logger.h"
 #include "pool.h"
 #include "random.h"
 #include "soundbank.h"
@@ -27,18 +25,33 @@
 OBJ_ATTR obj_buffer[MAX_SPRITES];
 OBJ_AFFINE* obj_aff_buffer = (OBJ_AFFINE*)obj_buffer;
 
-static Sprite* free_sprites[MAX_SPRITES] = {NULL};
-static bool free_affines[MAX_AFFINES] = {false};
+/*
+ * These allocation lookup tables are touched only when sprites are
+ * created/destroyed, not by the per-frame transform loop. Keep the hot sprite
+ * objects in IWRAM and move these cold tables to EWRAM to leave more stack
+ * headroom on real GBA hardware and constrained emulators.
+ */
+EWRAM_DATA static Sprite* free_sprites[MAX_SPRITES] = {NULL};
+EWRAM_DATA static bool free_affines[MAX_AFFINES] = {false};
 
 static List sprite_objects_list = LIST_DEFAULT;
 
 // Sprite methods
-Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, s16 sprite_index)
+Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, int sprite_index)
 {
+    if (sprite_index < 0 || sprite_index >= MAX_SPRITES)
+        return NULL;
+
     Sprite* sprite = POOL_GET(Sprite);
+    if (sprite == NULL)
+        return NULL;
 
     sprite->obj = NULL;
     sprite->aff = NULL;
+    /* Force one position upload after allocation.  Afterwards static sprite
+     * objects can skip identical OAM coordinate writes each frame. */
+    sprite->pos.x = 0x7FFF;
+    sprite->pos.y = 0x7FFF;
 
     if (!free_sprites[sprite_index])
     {
@@ -66,6 +79,7 @@ Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, s16 sprite_index)
 
         if (aff_index == MAX_AFFINES)
         {
+            free_sprites[sprite_index] = NULL;
             POOL_FREE(Sprite, sprite);
             return NULL;
         }
@@ -85,14 +99,12 @@ Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, s16 sprite_index)
 
     sprite->idx = sprite_index;
 
-    sprite->mode = a0 & ATTR0_MODE_MASK;
-
     return sprite;
 }
 
 void sprite_destroy(Sprite** sprite)
 {
-    if (*sprite == NULL)
+    if (sprite == NULL || *sprite == NULL)
         return;
 
     obj_hide((*sprite)->obj);
@@ -109,21 +121,19 @@ void sprite_destroy(Sprite** sprite)
     *sprite = NULL;
 }
 
-/* The following functions don't check sprite->obj, assuming it shouldn't be NULL
- * if sprite != NULL since it's set in the constructor
- */
-
-s16 sprite_get_layer(Sprite* sprite)
+int sprite_get_layer(Sprite* sprite)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite, UNDEFINED);
-
-    return (s16)(sprite->obj - obj_buffer);
+    if (sprite == NULL || sprite->obj == NULL)
+        return UNDEFINED;
+    return sprite->obj - obj_buffer;
 }
 
 bool sprite_get_width(Sprite* sprite, int* width)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite, false);
-    GBAL_RETURN_IF_NULL_RET(width, false);
+    if (sprite == NULL || sprite->obj == NULL || width == NULL)
+    {
+        return false;
+    }
 
     *width = obj_get_width(sprite->obj);
     return true;
@@ -131,8 +141,10 @@ bool sprite_get_width(Sprite* sprite, int* width)
 
 bool sprite_get_height(Sprite* sprite, int* height)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite, false);
-    GBAL_RETURN_IF_NULL_RET(height, false);
+    if (sprite == NULL || sprite->obj == NULL || height == NULL)
+    {
+        return false;
+    }
 
     *height = obj_get_height(sprite->obj);
     return true;
@@ -140,9 +152,10 @@ bool sprite_get_height(Sprite* sprite, int* height)
 
 bool sprite_get_dimensions(Sprite* sprite, int* width, int* height)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite, false);
-    GBAL_RETURN_IF_NULL_RET(width, false);
-    GBAL_RETURN_IF_NULL_RET(height, false);
+    if (sprite == NULL || sprite->obj == NULL || width == NULL || height == NULL)
+    {
+        return false;
+    }
 
     const u8* size = obj_get_size(sprite->obj);
     *width = size[0];
@@ -158,76 +171,67 @@ void sprite_init()
 
 void sprite_draw()
 {
+    obj_aff_copy(obj_aff_mem, obj_aff_buffer, MAX_AFFINES);
     oam_copy(oam_mem, obj_buffer, MAX_SPRITES);
 }
 
 int sprite_get_pb(const Sprite* sprite)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite, UNDEFINED);
-
+    if (sprite == NULL || sprite->obj == NULL)
+    {
+        return UNDEFINED;
+    }
     return (sprite->obj->attr2 & ATTR2_PALBANK_MASK) >> ATTR2_PALBANK_SHIFT;
 }
 
-void sprite_hide(Sprite* sprite)
-{
-    GBAL_RETURN_IF_NULL_VOID(sprite);
-
-    obj_hide(sprite->obj);
-}
-
-void sprite_unhide(Sprite* sprite)
-{
-    GBAL_RETURN_IF_NULL_VOID(sprite);
-
-    obj_unhide(sprite->obj, sprite->mode);
-}
-
 // SpriteObject methods
-void sprite_object_init(SpriteObject* sprite_object)
+SpriteObject* sprite_object_new()
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
+    SpriteObject* sprite_object = POOL_GET(SpriteObject);
+    if (sprite_object == NULL)
+        return NULL;
     sprite_object->sprite = NULL;
     sprite_object_reset_transform(sprite_object);
     sprite_object->focused = false;
 
-    list_push_back(&sprite_objects_list, sprite_object);
+    if (!list_push_back(&sprite_objects_list, sprite_object))
+    {
+        POOL_FREE(SpriteObject, sprite_object);
+        return NULL;
+    }
+
+    return sprite_object;
 }
 
-void sprite_object_destroy(SpriteObject* sprite_object)
+void sprite_object_destroy(SpriteObject** sprite_object)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
+    if (sprite_object == NULL || *sprite_object == NULL)
+        return;
 
-    list_remove_data(&sprite_objects_list, sprite_object);
-    sprite_destroy(&sprite_object->sprite);
+    list_remove_data(&sprite_objects_list, *sprite_object);
+
+    sprite_destroy(&(*sprite_object)->sprite);
+    POOL_FREE(SpriteObject, *sprite_object);
+    *sprite_object = NULL;
 }
 
 void sprite_object_set_sprite(SpriteObject* sprite_object, Sprite* sprite)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
+    /*
+     * Keep the current sprite if OAM allocation failed.  Destroying the old
+     * sprite first turned a recoverable resource shortage into a later NULL
+     * dereference and, visually, into an unexplained empty card slot.
+     */
+    if (sprite_object == NULL || sprite == NULL)
+        return;
     sprite_destroy(&sprite_object->sprite); // Destroy the old sprite if it exists
     sprite_object->sprite = sprite;
 }
 
-void sprite_object_hide(SpriteObject* sprite_object)
-{
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
-    sprite_hide(sprite_object->sprite);
-}
-
-void sprite_object_unhide(SpriteObject* sprite_object)
-{
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
-    sprite_unhide(sprite_object->sprite);
-}
-
 void sprite_object_reset_transform(SpriteObject* sprite_object)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
+    if (sprite_object == NULL)
+        return;
     sprite_object_position(sprite_object, 0, 0); // Target position
     sprite_object->vx = 0;
     sprite_object->vy = 0;
@@ -238,10 +242,6 @@ void sprite_object_reset_transform(SpriteObject* sprite_object)
     sprite_object->rotation = 0;
     sprite_object->vrotation = 0;
 }
-
-/* The following functions are in the SpriteObject update loop which is called each frame
- * so they avoid argument NULL-checks for efficiency.
- */
 
 static inline bool sprite_object_has_velocity(const SpriteObject* sprite_object)
 {
@@ -320,21 +320,41 @@ static inline IWRAM_CODE void update_sprite_position(SpriteObject* sprite_object
         sprite_object->rotation += sprite_object->vrotation;
     }
 
-    // Apply rotation and scale to the sprite
-    obj_aff_rotscale(
-        sprite_object->sprite->aff,
-        sprite_object->scale,
-        sprite_object->scale,
-        -sprite_object->vx + sprite_object->rotation
-    );
+    // Some sprite objects are non-affine and have no matrix to update.
+    if (sprite_object->sprite != NULL && sprite_object->sprite->aff != NULL)
+    {
+        obj_aff_rotscale(
+            sprite_object->sprite->aff,
+            sprite_object->scale,
+            sprite_object->scale,
+            -sprite_object->vx + sprite_object->rotation
+        );
+    }
 }
 
 IWRAM_CODE void sprite_object_update(SpriteObject* sprite_object)
 {
-    if (!is_sprite_object_static(sprite_object))
-        update_sprite_position(sprite_object);
+    if (sprite_object == NULL || sprite_object->sprite == NULL)
+        return;
 
-    sprite_position(sprite_object->sprite, fx2int(sprite_object->x), fx2int(sprite_object->y));
+    if (!is_sprite_object_static(sprite_object))
+    {
+        update_sprite_position(sprite_object);
+        sprite_position(
+            sprite_object->sprite,
+            fx2int(sprite_object->x),
+            fx2int(sprite_object->y)
+        );
+        return;
+    }
+
+    /* Most shop, HUD and held-card objects are stationary for hundreds of
+     * frames.  Do not rewrite the same buffered OAM position at 60 Hz.  The
+     * cached Sprite position also catches callers that snap x/y directly. */
+    int x = fx2int(sprite_object->x);
+    int y = fx2int(sprite_object->y);
+    if (sprite_object->sprite->pos.x != x || sprite_object->sprite->pos.y != y)
+        sprite_position(sprite_object->sprite, x, y);
 }
 
 void sprite_object_update_all(void)
@@ -349,7 +369,8 @@ void sprite_object_update_all(void)
 
 void sprite_object_shake(SpriteObject* sprite_object, mm_word sound_id)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
+    if (sprite_object == NULL)
+        return;
 
     sprite_object->vscale = float2fx(0.3f);
     sprite_object->vrotation = float2fx(8.0f); // Rotate the card when it's scored
@@ -362,63 +383,71 @@ void sprite_object_shake(SpriteObject* sprite_object, mm_word sound_id)
 
 Sprite* sprite_object_get_sprite(SpriteObject* sprite_object)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite_object, NULL);
-
+    if (sprite_object == NULL)
+        return NULL;
     return sprite_object->sprite;
 }
 
 void sprite_object_set_focus(SpriteObject* sprite_object, bool focus)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
-
+    if (sprite_object == NULL)
+        return;
     if (sprite_object->focused == focus)
     {
         return;
     }
     sprite_object->focused = focus;
 
-    play_sfx(
-        SFX_CARD_FOCUS,
-        MM_BASE_PITCH_RATE + rng_get_u32(RNG_SEQ_MISC) % CARD_FOCUS_SFX_PITCH_OFFSET_RANGE,
-        SFX_DEFAULT_VOLUME
-    );
+    /*
+     * Cursor movement must stay silent and OAM-only.  Starting/cancelling a
+     * streamed effect on every D-pad step made MaxMod miss music updates on
+     * GBA-class hardware. Confirmation/selection actions still have SFX.
+     */
     sprite_object->ty = sprite_object->ty + int2fx((focus ? -1 : 1) * SPRITE_FOCUS_RAISE_PX);
 }
 
 bool sprite_object_get_width(SpriteObject* sprite_object, int* width)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite_object, false);
+    if (sprite_object == NULL)
+    {
+        return false;
+    }
 
     return sprite_get_width(sprite_object->sprite, width);
 }
 
 bool sprite_object_get_height(SpriteObject* sprite_object, int* height)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite_object, false);
+    if (sprite_object == NULL)
+    {
+        return false;
+    }
 
     return sprite_get_height(sprite_object->sprite, height);
 }
 
 bool sprite_object_get_dimensions(SpriteObject* sprite_object, int* width, int* height)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite_object, false);
+    if (sprite_object == NULL)
+    {
+        return false;
+    }
 
     return sprite_get_dimensions(sprite_object->sprite, width, height);
 }
 
 bool sprite_object_is_focused(SpriteObject* sprite_object)
 {
-    GBAL_RETURN_IF_NULL_RET(sprite_object, false);
     return sprite_object->focused;
 }
 
 static Rect sprite_object_get_text_rect_under(SpriteObject* sprite_object)
 {
+    if (sprite_object == NULL)
+        return (Rect){0};
+
     int height = 0;
     int width = 0;
-    Rect ret_rect = {0};
-
-    GBAL_RETURN_IF_NULL_RET(sprite_object, ret_rect);
 
     if (sprite_object_get_dimensions(sprite_object, &width, &height) == false)
     {
@@ -427,9 +456,23 @@ static Rect sprite_object_get_text_rect_under(SpriteObject* sprite_object)
         width = CARD_SPRITE_SIZE;
     }
 
-    ret_rect.left = fx2int(sprite_object->tx);
-    ret_rect.top = fx2int(sprite_object->ty) + height + TILE_SIZE;
-    ret_rect.right = ret_rect.left + width;
+    /*
+     * Affine sprites keep their 32x32 hardware footprint even when their
+     * visible art is scaled down.  Prices must follow the rendered artwork,
+     * not that unscaled footprint, otherwise compact consumables get a large
+     * empty gap below them.
+     */
+    FIXED scale = sprite_object->tscale > 0 ? sprite_object->tscale : FIX_ONE;
+    int rendered_width = max(1, (width * FIX_ONE + scale - 1) / scale);
+    int rendered_height = max(1, (height * FIX_ONE + scale - 1) / scale);
+
+    Rect ret_rect = {0};
+
+    ret_rect.left =
+        fx2int(sprite_object->tx) + max(0, (width - rendered_width) / 2);
+    ret_rect.top =
+        fx2int(sprite_object->ty) + (height + rendered_height) / 2 + TILE_SIZE;
+    ret_rect.right = ret_rect.left + rendered_width;
     ret_rect.bottom = ret_rect.top + TTE_CHAR_SIZE;
 
     return ret_rect;
@@ -437,16 +480,20 @@ static Rect sprite_object_get_text_rect_under(SpriteObject* sprite_object)
 
 void sprite_object_print_text_under(SpriteObject* sprite_object, const char text[])
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
+    if (sprite_object == NULL || text == NULL)
+        return;
 
     Rect text_rect = sprite_object_get_text_rect_under(sprite_object);
+
     update_text_rect_to_center_str(&text_rect, text, SCREEN_LEFT);
+
     tte_printf("#{P:%d,%d; cx:0x%X000}%s", text_rect.left, text_rect.top, TTE_YELLOW_PB, text);
 }
 
 void sprite_object_print_price_under(SpriteObject* sprite_object, int price)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
+    if (sprite_object == NULL)
+        return;
 
     // + 2 for null-terminator and "$"
     char price_str_buff[INT_MAX_DIGITS + 2];
@@ -456,7 +503,8 @@ void sprite_object_print_price_under(SpriteObject* sprite_object, int price)
 
 void sprite_object_erase_text_under(SpriteObject* sprite_object)
 {
-    GBAL_RETURN_IF_NULL_VOID(sprite_object);
+    if (sprite_object == NULL)
+        return;
 
     Rect text_rect = sprite_object_get_text_rect_under(sprite_object);
 

@@ -1,8 +1,3 @@
-/**
- * @file blind.h
- * @brief Data structures and functions relative to the behaviour and graphics of Blinds.
- */
-
 #ifndef BLIND_H
 #define BLIND_H
 
@@ -12,11 +7,16 @@
 // simplicity's sake
 #define MAX_ANTE 8
 
-/**
- * @enum BlindTokens
- * @brief The sprites that display the blinds when in "GAME_BLIND_SELECT" state.
- *         There are only 3 blinds per Ante, so we don't need more sprites than that
- */
+// Sprite IDs of the various Blind Tokens used in the game, expressed as an offset
+// relative to `BLIND_BASE_LAYER`
+#define PLAYING_BLIND_TOKEN_LAYER   0
+#define ROUND_END_BLIND_TOKEN_LAYER 1
+#define SMALL_BLIND_TOKEN_LAYER     2
+#define BIG_BLIND_TOKEN_LAYER       3
+#define BOSS_BLIND_TOKEN_LAYER      4
+
+// The sprites that display the blinds when in "GAME_BLIND_SELECT" state
+// There are only 3 blinds per Ante, so we don't need more sprites than that
 enum BlindTokens
 {
     SMALL_BLIND,
@@ -25,26 +25,7 @@ enum BlindTokens
     NUM_BLINDS_PER_ANTE
 };
 
-/**
- * @enum BlindTokenLayers
- * @brief Sprite IDs of the various Blind Tokens used in the game, expressed as an offset relative
- *         to `BLIND_BASE_LAYER`
- *
- * @sa BLIND_BASE_LAYER
- */
-enum BlindTokenLayers
-{
-    PLAYING_BLIND_TOKEN_LAYER,
-    ROUND_END_BLIND_TOKEN_LAYER,
-    SMALL_BLIND_TOKEN_LAYER,
-    BIG_BLIND_TOKEN_LAYER,
-    BOSS_BLIND_TOKEN_LAYER
-};
-
-/**
- * @enum BlindColorIndex
- * @brief Indices of the Blind sprites' colors as encoded in the files' palettes with Aseprite
- */
+// Order of the Blind sprites' colors as encoded in the files' palettes with Aseprite
 enum BlindColorIndex
 {
     BLIND_TEXT_COLOR_INDEX = 1,
@@ -57,14 +38,6 @@ enum BlindColorIndex
 };
 
 // clang-format off
-/**
- * @enum BlindType
- * @brief All Blind types in the game are listed here.
- *
- * Boss Blinds range from `BLIND_TYPE_BOSS` to `BLIND_TYPE_SHOWDOWN - 1`.
- *
- * Showdown Blinds range from `BLIND_TYPE_SHOWDOWN` to `BLIND_TYPE_MAX - 1`
- */
 enum BlindType
 {
     // Normal Blinds
@@ -112,11 +85,6 @@ enum BlindType
 };
 // clang-format on
 
-/**
- * @enum BlindState
- * @brief All the possible states an Ante's Blinds can be in when viewed in the "Blind Select"
- *         screen.
- */
 enum BlindState
 {
     BLIND_STATE_CURRENT,
@@ -126,101 +94,29 @@ enum BlindState
     BLIND_STATE_MAX,
 };
 
-/**
- * @struct Blind
- * @brief Data structure containing data about a BlindType.
- *
- * Only contains the score requirement multiplier for now, but will contain info about the Blind's
- * effect when implemented.
- */
 typedef struct
 {
-    u8 type;
-    FIXED score_req_multiplier;
+    enum BlindType type;
+    FIXED score_req_multipler;
+    s32 reward;
 } Blind;
 
 void blind_init();
 
-/**
- * @brief Get the score required to beat a certain blind (either the Small, Big, or any
- *         Boss/Showdown blind) at a certain Ante.
- *
- * @param type the `BlindType` value of the blind we need the score requirement of
- * @param ante the Ante at which the blind `type` is encountered
- *
- * @return the required score to beat the requested blind
- */
 u32 blind_get_requirement(enum BlindType type, int ante);
-
-/**
- * @brief Get the amount of money gained from beating a certain Blind.
- *
- * @param type the BlindType of the beaten Blind
- *
- * @return 3 for the Small Blind, 4 for the Big one, 5 for Bosses and 8 for Showdowns
- */
 int blind_get_reward(enum BlindType type);
-
-/**
- * @brief Get the color associated with a given Blind.
- *
- * @param type the BlindType whose palette will be used
- * @param index of the color within the Blind's palette
- *
- * @return the BGR555 value of the requested color
- */
+const char* blind_get_name(enum BlindType type);
+const char* blind_get_description(enum BlindType type);
 u16 blind_get_color(enum BlindType type, enum BlindColorIndex index);
 
-/**
- * @brief Choose a random Blind among the ones that haven't been beaten yet.
- *
- * @param showdown whether we want to roll a Showdown or a regular Boss Blind.
- *
- * @return a BlindType value chosen at random
- */
-enum BlindType roll_blind_type(bool showdown);
-
-/**
- * @brief Initialize Boss and Showdown Blinds lists to roll from
- */
-void init_unbeaten_blinds_lists(void);
-
-/**
- * @brief Remove the given Blind from the corresponding List so that we don't roll it again in the
- *         future.
- *
- * @param type the BlindType of the Boss/Showdown Blind we've just beaten.
- */
+void init_unbeaten_blinds_list(bool showdown);
+enum BlindType roll_blind_type(bool showdown, int ante);
 void set_blind_beaten(enum BlindType type);
 
-/**
- * @brief Copy the palette associated with the given Blind and copy it in the right spot in the
- *         palette memory
- *
- * @param type of the Blind whose palette we need
- */
 void apply_blind_colors(enum BlindType type);
-
-/**
- * @brief Change the tiles of the BlindToken Sprite at a given layer to that of the given BlindType.
- *
- * @param type of the Blind we want to apply the tiles of.
- * @param layer the Sprite will be located at.
- *
- * @sa BlindTokenLayers
- */
-void apply_blind_tiles(enum BlindType type, enum BlindTokenLayers layer);
-
-/**
- * @brief Create a new BlindToken sprite.
- *
- * @param type of the Blind the token needs to represent
- * @param x initial position of the new Sprite on the horizontal axis
- * @param y initial position of the new Sprite on the vertical axis
- * @param sprite_index layer of the new Sprite
- *
- * @sa BlindTokenLayers
- */
-Sprite* blind_token_new(enum BlindType type, int x, int y, enum BlindTokenLayers sprite_index);
+void apply_blind_tiles(enum BlindType type, int layer);
+/** Reload a Blind token and optionally add the white D-pad cursor contour. */
+void blind_token_set_focus(enum BlindType type, int layer, bool focused);
+Sprite* blind_token_new(enum BlindType type, int x, int y, int sprite_index);
 
 #endif // BLIND_H

@@ -18,7 +18,6 @@
 #include "state_machine.h"
 #include "util.h"
 
-#include <string.h>
 #include <tonc.h>
 
 // Palette Indices
@@ -30,13 +29,13 @@
 #define BLUE_DISABLED_BTN_MAIN_COLOR_PAL_IDX 13
 #define BACK_BTN_MAIN_COLOR_PAL_IDX          14
 
-#define NEW_RUN_BTN_OUTLINE_COLOR_PAL_IDX     30
-#define RESUME_BTN_OUTLINE_COLOR_PAL_IDX      31
-#define CHANGE_DECK_BTN_OUTLINE_COLOR_PAL_IDX 32
-#define SEED_CHECK_BTN_OUTLINE_COLOR_PAL_IDX  33
-#define SEED_DECK_BTN_OUTLINE_COLOR_PAL_IDX   34
-#define PLAY_BTN_OUTLINE_COLOR_PAL_IDX        35
-#define BACK_BTN_OUTLINE_COLOR_PAL_IDX        36
+#define NEW_RUN_BTN_OUTLINE_COLOR_PAL_IDX    30
+#define RESUME_BTN_OUTLINE_COLOR_PAL_IDX     31
+#define CHANGE_DECK_BTN_OUTINE_COLOR_PAL_IDX 32
+#define SEED_CHECK_BTN_OUTLINE_COLOR_PAL_IDX 33
+#define SEED_DECK_BTN_OUTLINE_COLOR_PAL_IDX  34
+#define PLAY_BTN_OUTLINE_COLOR_PAL_IDX       35
+#define BACK_BTN_OUTLINE_COLOR_PAL_IDX       36
 
 #define KEYBOARD_1_BTN_OUTLINE_COLOR_PAL_IDX 40
 #define KEYBOARD_2_BTN_OUTLINE_COLOR_PAL_IDX 41
@@ -95,24 +94,13 @@ static void seed_keyboard_substate_init(void);
 static void seed_keyboard_substate_update(void);
 
 static void resume_substate_init(void);
+static void resume_substate_update(void);
 
-// clang-format off
-static StateInfo state_info[] =
-{
-    [RUN_SETUP_SUBSTATE_CHOOSE_DECK] = STATE_INFO_INIT_UPDATE_FN(
-        choose_deck_substate_init, 
-        choose_deck_substate_update
-    ),
-    [RUN_SETUP_SUBSTATE_CHOOSE_SEED] = STATE_INFO_INIT_UPDATE_FN(
-        seed_keyboard_substate_init,
-        seed_keyboard_substate_update
-    ),
-    [RUN_SETUP_SUBSTATE_RESUME] = STATE_INFO_INIT_UPDATE_FN(
-        resume_substate_init, 
-        noop
-    )
+static StateInfo state_info[] = {
+    STATE_INFO_INIT_UPDATE_FN(choose_deck_substate_init, choose_deck_substate_update),
+    STATE_INFO_INIT_UPDATE_FN(seed_keyboard_substate_init, seed_keyboard_substate_update),
+    STATE_INFO_INIT_UPDATE_FN(resume_substate_init, resume_substate_update)
 };
-// clang-format on
 
 static StateMachine run_setup_sm = {
     .state_infos = &state_info[0],
@@ -160,6 +148,12 @@ static const Rect     RUN_SETUP_CHOOSE_SEED_DECK_BTN_DEST                 = {17,
 // Pixel sizes
 #define RUN_SETUP_DECK_SPRITE_T_X 48
 #define RUN_SETUP_DECK_SPRITE_T_Y 54
+/*
+ * Keep the preview away from gameplay card layers 0-15 and from blind/Joker
+ * OAM.  Reusing layer 0 made the preview fragile across Main Menu -> Run Setup
+ * transitions and could leave only the gray background placeholder visible.
+ */
+#define RUN_SETUP_DECK_SPRITE_LAYER 24
 static const BG_POINT RUN_SETUP_DECK_NAME_TEXT_POS  = {80 , 40 };
 static const BG_POINT RUN_SETUP_DECK_DESC_TEXT_POS  = {80 , 56 };
 static const Rect     RUN_SETUP_DECK_NAME_DESC_RECT = {80 , 40 ,176, 96 };
@@ -187,6 +181,7 @@ enum RunSetupTab
 };
 
 static bool is_saved_game_valid = false;
+static enum RunSetupTab current_tab = RUN_SETUP_TAB_NEW_RUN;
 
 static void tab_set_highlight(enum RunSetupTab tab_sel);
 static void run_setup_tabs_update(void);
@@ -303,9 +298,11 @@ static SelectionGrid choose_deck_selection_grid = {
 // CHOOSE DECK BUTTONS
 
 static void change_deck_on_pressed(void);
+static void change_deck_by(int delta);
+static void update_pending_deck_text(void);
 
 static Button change_deck_button = {
-    CHANGE_DECK_BTN_OUTLINE_COLOR_PAL_IDX,
+    CHANGE_DECK_BTN_OUTINE_COLOR_PAL_IDX,
     CHANGE_DECK_BTN_MAIN_COLOR_PAL_IDX,
     change_deck_on_pressed,
     NULL
@@ -329,6 +326,8 @@ static Button choose_deck_bottom_buttons[RUN_SETUP_DECK_BB_MAX] = {
 
 static bool use_seed = false;
 static CardObject* run_setup_deck = NULL;
+static bool deck_text_refresh_pending = false;
+static u8 deck_text_refresh_phase = 0;
 
 #pragma endregion
 
@@ -540,7 +539,7 @@ static Button choose_seed_bottom_buttons[2] = {
     }
 };
 
-static const char KEYBOARD_BUTTONS_TO_CHAR[KEYBOARD_HEIGHT * KEYBOARD_WIDTH] = {
+static const char keyboard_buttons_to_char[KEYBOARD_HEIGHT * KEYBOARD_WIDTH] = {
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
     'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
@@ -549,8 +548,8 @@ static const char KEYBOARD_BUTTONS_TO_CHAR[KEYBOARD_HEIGHT * KEYBOARD_WIDTH] = {
 // clang-format on
 
 // Size BASE36_MAX_DIGITS + 1 to always have '\0' at the end
-static char s_seed_str[BASE36_MAX_DIGITS + 1] = {'\0'};
-static u8 s_seed_cursor_pos = 0;
+static char seed_str[BASE36_MAX_DIGITS + 1] = {'\0'};
+static u8 seed_cursor_pos = 0;
 
 #pragma endregion
 
@@ -577,71 +576,76 @@ enum RunSetupResumeRows
  * STATE FUNCTIONS
  ******************************************************************************/
 
-void run_setup_change_background(void)
+void game_run_setup_change_background(void)
 {
+    /*
+     * Run Setup is a full-screen opaque menu.  WIN1 covers the top-right
+     * gameplay/Joker area (x=72..232, y=0..44) and blends BG1 away there.
+     * Leaving it enabled punched a large transparent rectangle through the
+     * deck chooser frame, making the affine background show behind the title.
+     */
+    toggle_windows(false, false);
     tte_erase_screen();
     GRIT_CPY(pal_bg_mem, background_run_setup_gfxPal);
     GRIT_CPY(&tile_mem[MAIN_BG_CBB], background_run_setup_gfxTiles);
     GRIT_CPY(&se_mem[MAIN_BG_SBB], background_run_setup_gfxMap);
 }
 
-void run_setup_on_init(void)
+void game_run_setup_on_init(void)
 {
     state_machine_register(&run_setup_sm);
-    run_setup_change_background();
+    change_background(BG_RUN_SETUP, true);
 
-    // Apply the current use_seed value if seed is UNDEFINED
-    if (g_game_vars.rng_info.seed == UNDEFINED)
+    /*
+     * OBJ palettes survive background transitions.  Gameplay and shop assets
+     * may have reused palette banks, so explicitly restore the deck-back
+     * palette whenever this preview screen is entered.
+     */
+    card_init();
+    g_game_vars.deck = clamp(g_game_vars.deck, 0, DECK_TYPE_MAX - 1);
+
+    // Rank doesn't matter, won't see it.  Keep the menu usable if a pool is
+    // exhausted; the background already contains a neutral preview recess.
+    Card* preview_card = card_new(SPADES, ACE);
+    run_setup_deck = card_object_new(preview_card);
+    if (run_setup_deck == NULL)
     {
-        // Make the string empty instead of showing all zeroes
-        memset(s_seed_str, '\0', BASE36_MAX_DIGITS + 1);
-        s_seed_cursor_pos = 0;
+        card_destroy(&preview_card);
     }
-    // Or use previous Run's seed if it hasn't been reset
     else
     {
-        u32_to_base36(g_game_vars.rng_info.seed, s_seed_str);
-        s_seed_cursor_pos = BASE36_MAX_DIGITS;
-        use_seed = true;
+        card_object_set_sprite_face_down(
+            run_setup_deck,
+            g_game_vars.deck,
+            RUN_SETUP_DECK_SPRITE_LAYER
+        );
+        card_object_set_focus(run_setup_deck, true);
+        sprite_object_position(
+            run_setup_deck->sprite_object,
+            RUN_SETUP_DECK_SPRITE_T_X,
+            RUN_SETUP_DECK_SPRITE_T_Y
+        );
     }
-    toggle_seed_enabled(use_seed);
 
-    // Rank doesn't matter, won't see it
-    run_setup_deck = card_object_new(card_new(SPADES, ACE));
-
-    // We put it at the same layer as the main menu Ace card, but it's okay because
-    // both cards do not exist at the same time, one is destroyed before the other is created.
-    card_object_set_sprite_face_down(run_setup_deck, g_game_vars.deck, 0);
-
-    sprite_object_position(
-        (SpriteObject*)run_setup_deck,
-        RUN_SETUP_DECK_SPRITE_T_X,
-        RUN_SETUP_DECK_SPRITE_T_Y
-    );
-
-    /* Uncomment these lines when we figure out how to properly restore a game save
     is_saved_game_valid = is_game_data_valid();
-    if (is_saved_game_valid)
-    {
-        state_machine_change_state(&run_setup_sm, RUN_SETUP_SUBSTATE_RESUME);
-    }
-    */
+    current_tab = RUN_SETUP_TAB_NEW_RUN;
 
     // Land on the deck swapping button when landing on this state from the Main Menu
     choose_deck_selection_grid.selection = RUN_SETUP_CHOOSE_DECK_INIT_SEL;
     state_machine_change_state(&run_setup_sm, RUN_SETUP_SUBSTATE_CHOOSE_DECK);
 }
 
-void run_setup_on_update(void)
+void game_run_setup_on_update(void)
 {
     run_setup_tabs_update();
 }
 
-void run_setup_on_exit(void)
+void game_run_setup_on_exit(void)
 {
     state_machine_remove(&run_setup_sm);
 
-    card_destroy(&run_setup_deck->card);
+    if (run_setup_deck != NULL)
+        card_destroy(&run_setup_deck->card);
     card_object_destroy(&run_setup_deck);
 
     tte_erase_screen();
@@ -662,9 +666,12 @@ void run_setup_on_exit(void)
 static void choose_deck_substate_init(void)
 {
     // Show Deck sprite, name and TODO: description
-    sprite_object_unhide((SpriteObject*)run_setup_deck);
+    if (run_setup_deck != NULL && card_object_get_sprite(run_setup_deck) != NULL)
+        obj_unhide(card_object_get_sprite(run_setup_deck)->obj, ATTR0_AFF);
     print_deck_name(g_game_vars.deck, RUN_SETUP_DECK_NAME_TEXT_POS);
     print_deck_description(g_game_vars.deck, RUN_SETUP_DECK_DESC_TEXT_POS);
+    deck_text_refresh_pending = false;
+    deck_text_refresh_phase = 0;
 
     // Clean frame and expand 9-patch for the Deck choice background
     main_bg_se_copy_expand_tile(
@@ -680,8 +687,6 @@ static void choose_deck_substate_init(void)
         &RUN_SETUP_CHOOSE_DECK_CHOICE_BG_9_PTCH_SRC
     );
 
-    // TODO: add left/right navigation arrows once more decks have been implemented
-
     // Set Tab to "New Run"
     // Uncomment when tab row is re-added (clang-format made it ugly, sorry)
     // main_bg_se_copy_rect(RUN_SETUP_RESUME_TAB_DISABLED_SRC,
@@ -690,9 +695,9 @@ static void choose_deck_substate_init(void)
     // Set button highlights
     button_set_highlight(&change_deck_button, true);
     button_set_highlight(&choose_deck_bottom_buttons[RUN_SETUP_DECK_BB_USE_SEED], false);
+    toggle_seed_enabled(use_seed); // This just re-applies the current value
     button_set_highlight(&choose_deck_bottom_buttons[RUN_SETUP_DECK_BB_PLAY], false);
     button_set_highlight(&back_button, false);
-    toggle_seed_enabled(use_seed);
 
     // Print button text
     tte_printf(
@@ -717,7 +722,33 @@ static void choose_deck_substate_init(void)
  */
 static void choose_deck_substate_update(void)
 {
+    if (choose_deck_selection_grid.selection.y == RUN_SETUP_DECK_ROW_CHANGE_DECK)
+    {
+        if (key_hit(KEY_LEFT))
+        {
+            change_deck_by(-1);
+            return;
+        }
+        if (key_hit(KEY_RIGHT))
+        {
+            change_deck_by(1);
+            return;
+        }
+        if (key_hit(SELECT_CARD))
+        {
+            button_press(&change_deck_button);
+            return;
+        }
+    }
     selection_grid_process_input(&choose_deck_selection_grid);
+
+    /*
+     * TTE erasing/formatting plus a 32x32 deck-back redraw in the same frame
+     * was expensive enough to delay MaxMod's next mmFrame() call.  Coalesce
+     * rapid browsing to the final deck and draw the text over two idle frames.
+     */
+    if (!key_hit(KEY_ANY))
+        update_pending_deck_text();
 }
 
 /**
@@ -772,9 +803,13 @@ static bool choose_deck_row_on_selection_changed(
 {
     button_set_highlight(change_deck_get_button_from_sel(prev_selection), false);
     button_set_highlight(change_deck_get_button_from_sel(new_selection), true);
-
-    // TODO: detect left/right press on Change Deck row to allow swapping
-    // Decks need to be implemented for this
+    if (run_setup_deck != NULL)
+    {
+        card_object_set_focus(
+            run_setup_deck,
+            new_selection->y == RUN_SETUP_DECK_ROW_CHANGE_DECK
+        );
+    }
 
     return true;
 }
@@ -814,7 +849,7 @@ static inline void update_seed_text(void)
         RUN_SETUP_SEED_FIELD_TEXT_POS.y,
         TTE_BLACK_PB,
         BASE36_MAX_DIGITS + 1,
-        s_seed_str
+        seed_str
     );
 }
 
@@ -827,7 +862,8 @@ static void seed_keyboard_substate_init(void)
     tte_erase_rect_wrapper(RUN_SETUP_DECK_NAME_DESC_RECT);
 
     // Hide Deck card sprite
-    sprite_object_hide((SpriteObject*)run_setup_deck);
+    if (run_setup_deck != NULL && card_object_get_sprite(run_setup_deck) != NULL)
+        obj_hide(card_object_get_sprite(run_setup_deck)->obj);
 
     // Clean deck swap screen with frame BG color
     main_bg_se_copy_expand_tile(
@@ -918,9 +954,11 @@ static inline void reroll_seed_str(void)
     // Also, don't use the shuffled seed as is, or we'll just end up with sequential seeds when
     // rolling multiple times.
     rng_shuffle_seed();
-    u32_to_base36(g_game_vars.rng_info.seed, s_seed_str);
+    u32 new_seed = rng_get_u32();
+    rng_set_seed(new_seed);
+    u32_to_base36(new_seed, seed_str);
     update_seed_text();
-    s_seed_cursor_pos = BASE36_MAX_DIGITS;
+    seed_cursor_pos = BASE36_MAX_DIGITS;
 }
 
 /**
@@ -928,10 +966,10 @@ static inline void reroll_seed_str(void)
  */
 static inline void delete_seed_char(void)
 {
-    if (s_seed_cursor_pos == 0)
+    if (seed_cursor_pos == 0)
         return;
 
-    s_seed_str[--s_seed_cursor_pos] = '\0';
+    seed_str[--seed_cursor_pos] = '\0';
     update_seed_text();
 }
 
@@ -942,10 +980,10 @@ static inline void delete_seed_char(void)
  */
 static inline void type_seed_char(enum RunSetupKeyboardButtons key)
 {
-    if (s_seed_cursor_pos >= BASE36_MAX_DIGITS)
+    if (seed_cursor_pos >= BASE36_MAX_DIGITS)
         return;
 
-    s_seed_str[s_seed_cursor_pos++] = KEYBOARD_BUTTONS_TO_CHAR[key];
+    seed_str[seed_cursor_pos++] = keyboard_buttons_to_char[key];
     update_seed_text();
 }
 
@@ -974,8 +1012,8 @@ static void keyboard_button_on_pressed(void)
     // The cursor position is unsigned so always positive, but we still need to
     // ensure it doersn't go out of bounds by more than 1 so that we can always
     // substract 1 from it when erasing a character from the seed string.
-    if (s_seed_cursor_pos > BASE36_MAX_DIGITS)
-        s_seed_cursor_pos = BASE36_MAX_DIGITS;
+    if (seed_cursor_pos > BASE36_MAX_DIGITS)
+        seed_cursor_pos = BASE36_MAX_DIGITS;
 
     if (key_hit(DESELECT_CARDS))
         delete_seed_char();
@@ -1118,9 +1156,30 @@ static void deck_on_pressed(void)
 static void resume_substate_init(void)
 {
     tab_set_highlight(RUN_SETUP_TAB_RESUME);
+    current_tab = RUN_SETUP_TAB_RESUME;
 
     // Show Deck card sprite
-    sprite_object_unhide((SpriteObject*)run_setup_deck);
+    if (run_setup_deck != NULL && card_object_get_sprite(run_setup_deck) != NULL)
+        obj_unhide(card_object_get_sprite(run_setup_deck)->obj, ATTR0_AFF);
+    tte_erase_rect_wrapper(RUN_SETUP_DECK_NAME_DESC_RECT);
+    tte_printf("#{P:80,40; cx:0x%X000} Saved Run", TTE_WHITE_PB);
+    tte_printf("#{P:80,64; cx:0x%X000}A Continue", TTE_BLUE_PB);
+    tte_printf("#{P:80,80; cx:0x%X000}B New Run", TTE_RED_PB);
+    tte_printf("#{P:152,16; cx:0x%X000}L New Run", TTE_WHITE_PB);
+}
+
+static void resume_substate_update(void)
+{
+    if (key_hit(SELECT_CARD))
+    {
+        if (load_game())
+            game_change_state(GAME_STATE_GAME_START);
+    }
+    else if (key_hit(DESELECT_CARDS))
+    {
+        current_tab = RUN_SETUP_TAB_NEW_RUN;
+        state_machine_change_state(&run_setup_sm, RUN_SETUP_SUBSTATE_CHOOSE_DECK);
+    }
 }
 
 // COMMON BUTTONS
@@ -1183,14 +1242,12 @@ static void seed_on_pressed(void)
  */
 static void play_on_pressed(void)
 {
-    // Apply provided Seed if enabled, and if we entered one. This prevents us from always using
-    // seed "ZZZZZZ" if we enter the Seed menu and hit Play without typing anything.
-    if (use_seed && strlen(s_seed_str) > 0)
-        rng_set_seed(base36_to_u32(s_seed_str));
+    clear_game_save();
+    // Apply provided Seed if enabled
+    if (use_seed)
+        rng_set_seed(base36_to_u32(seed_str));
     else
         rng_shuffle_seed();
-
-    use_seed = false;
 
     game_change_state(GAME_STATE_GAME_START);
 }
@@ -1208,6 +1265,41 @@ static void back_on_pressed(void)
  */
 static void change_deck_on_pressed(void)
 {
+    change_deck_by(1);
+}
+
+static void change_deck_by(int delta)
+{
+    int deck = (g_game_vars.deck + DECK_TYPE_MAX + delta) % DECK_TYPE_MAX;
+    g_game_vars.deck = deck;
+    deck_text_refresh_pending = true;
+    deck_text_refresh_phase = 0;
+    if (run_setup_deck != NULL)
+    {
+        card_object_set_sprite_face_down(
+            run_setup_deck,
+            (enum DeckType)deck,
+            RUN_SETUP_DECK_SPRITE_LAYER
+        );
+    }
+}
+
+static void update_pending_deck_text(void)
+{
+    if (!deck_text_refresh_pending)
+        return;
+
+    if (deck_text_refresh_phase == 0)
+    {
+        tte_erase_rect_wrapper(RUN_SETUP_DECK_NAME_DESC_RECT);
+        print_deck_name(g_game_vars.deck, RUN_SETUP_DECK_NAME_TEXT_POS);
+        deck_text_refresh_phase = 1;
+        return;
+    }
+
+    print_deck_description(g_game_vars.deck, RUN_SETUP_DECK_DESC_TEXT_POS);
+    deck_text_refresh_pending = false;
+    deck_text_refresh_phase = 0;
 }
 
 /**
@@ -1229,8 +1321,6 @@ static void tab_set_highlight(enum RunSetupTab tab_sel)
  */
 static void run_setup_tabs_update(void)
 {
-    static enum RunSetupTab current_tab = RUN_SETUP_TAB_RESUME;
-
     // Either not pressed anything or there is no saved data, "Resume" tab is left grayed out and
     // only one tab is available. Return early to not spend time on tab-changing logic
     if (!key_hit(KEY_ANY) || !is_saved_game_valid)

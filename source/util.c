@@ -2,6 +2,7 @@
 
 #include "font.h"
 
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -67,26 +68,42 @@ static inline void truncate_num_get_remainder_string(
 )
 {
     // Truncating the remainder in string form rather than number to avoid divisions
-    char* remainder_str_format;
-
     switch (suffix_char)
     {
         // Pad with 0s to not lose leading zeros after decimal point
         case 'B':
-            remainder_str_format = "%09lu";
+            snprintf(
+                remainder_str,
+                UINT_MAX_DIGITS + 1,
+                "%09" PRIu32,
+                decimal_remainder
+            );
             break;
         case 'M':
-            remainder_str_format = "%06lu";
+            snprintf(
+                remainder_str,
+                UINT_MAX_DIGITS + 1,
+                "%06" PRIu32,
+                decimal_remainder
+            );
             break;
         case 'K':
-            remainder_str_format = "%03lu";
+            snprintf(
+                remainder_str,
+                UINT_MAX_DIGITS + 1,
+                "%03" PRIu32,
+                decimal_remainder
+            );
             break;
         default:
-            // Should not reach here
-            remainder_str_format = "%lu";
+            snprintf(
+                remainder_str,
+                UINT_MAX_DIGITS + 1,
+                "%" PRIu32,
+                decimal_remainder
+            );
+            break;
     }
-
-    snprintf(remainder_str, UINT_MAX_DIGITS + 1, remainder_str_format, decimal_remainder);
 
     // Truncate overflow
     int remaining_chars = num_req_chars - u32_get_digits(truncated_num) - 1; // - 1 for suffix
@@ -167,7 +184,33 @@ void truncate_uint_to_suffixed_str(
         );
     }
 
-    snprintf(out_str_buff, UINT_MAX_DIGITS + 1, "%lu%s%s", truncated_num, remainder_str, suffix);
+    /*
+     * Keep the final assembly explicitly bounded.  Besides avoiding a large
+     * formatter on the GBA, this makes the contract hold even if a future
+     * suffix/remainder calculation is changed incorrectly.
+     */
+    int written = snprintf(
+        out_str_buff,
+        UINT_MAX_DIGITS + 1,
+        "%" PRIu32,
+        truncated_num
+    );
+    size_t used =
+        written > 0 && written <= UINT_MAX_DIGITS ? (size_t)written : 0;
+    if (used < UINT_MAX_DIGITS)
+    {
+        size_t remainder_len = strnlen(
+            remainder_str,
+            UINT_MAX_DIGITS - used
+        );
+        memcpy(out_str_buff + used, remainder_str, remainder_len);
+        used += remainder_len;
+    }
+    if (used < UINT_MAX_DIGITS && suffix[0] != '\0')
+    {
+        out_str_buff[used++] = suffix[0];
+    }
+    out_str_buff[used] = '\0';
 }
 
 // Avoid uint overflow when add/multiplying score

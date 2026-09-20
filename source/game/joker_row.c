@@ -6,6 +6,8 @@
 #include "layout.h"
 #include "list.h"
 #include "sprite.h"
+
+#include <limits.h>
 #include "util.h"
 
 int jokers_sel_row_get_size(void)
@@ -33,8 +35,8 @@ bool jokers_sel_row_on_selection_changed(
         // Don't change focus from current Joker if swapping
         if (joker_object != NULL && !swapping)
         {
-            sprite_object_erase_text_under((SpriteObject*)joker_object);
-            sprite_object_set_focus((SpriteObject*)joker_object, false);
+            sprite_object_erase_text_under(joker_object->sprite_object);
+            joker_object_set_focus(joker_object, false);
         }
     }
 
@@ -46,7 +48,7 @@ bool jokers_sel_row_on_selection_changed(
         {
             if (!swapping)
             {
-                sprite_object_set_focus((SpriteObject*)joker_object, true);
+                joker_object_set_focus(joker_object, true);
             }
             // If we land on this row while the A button is being held, we are in swapping mode
             // This means that we need to hide the price, whether we were already
@@ -54,7 +56,7 @@ bool jokers_sel_row_on_selection_changed(
             if (!key_is_down(SELECT_CARD))
             {
                 sprite_object_print_price_under(
-                    (SpriteObject*)joker_object,
+                    joker_object->sprite_object,
                     joker_get_sell_value(joker_object->joker)
                 );
             }
@@ -75,9 +77,15 @@ bool jokers_sel_row_on_selection_changed(
 
 static inline void joker_start_discard_animation(JokerObject* joker_object)
 {
-    joker_object->tx = int2fx(JOKER_DISCARD_TARGET.x);
-    joker_object->ty = int2fx(JOKER_DISCARD_TARGET.y);
-    list_push_back(get_discarded_jokers_list(), joker_object);
+    if (joker_object == NULL || joker_object->sprite_object == NULL)
+    {
+        joker_object_destroy(&joker_object);
+        return;
+    }
+    joker_object->sprite_object->tx = int2fx(JOKER_DISCARD_TARGET.x);
+    joker_object->sprite_object->ty = int2fx(JOKER_DISCARD_TARGET.y);
+    if (!list_push_back(get_discarded_jokers_list(), joker_object))
+        joker_object_destroy(&joker_object);
 }
 
 static inline void game_sell_joker(int joker_idx)
@@ -88,11 +96,20 @@ static inline void game_sell_joker(int joker_idx)
         return;
 
     JokerObject* joker_object = (JokerObject*)list_get_at_idx(owned_jokers_list, joker_idx);
-    g_game_vars.money += joker_get_sell_value(joker_object->joker);
+    if (joker_object == NULL || joker_object->joker == NULL ||
+        joker_object->sprite_object == NULL)
+        return;
+
+    int sell_value = joker_get_sell_value(joker_object->joker);
+    g_game_vars.money =
+        sell_value > INT_MAX - g_game_vars.money
+          ? INT_MAX
+          : g_game_vars.money + sell_value;
     display_money();
-    sprite_object_erase_text_under((SpriteObject*)joker_object);
+    sprite_object_erase_text_under(joker_object->sprite_object);
 
     remove_owned_joker(joker_idx);
+    game_notify_joker_sold();
 
     joker_start_discard_animation(joker_object);
 }
@@ -104,12 +121,12 @@ void jokers_sel_row_on_key_transit(SelectionGrid* selection_grid, Selection* sel
     {
         if (key_hit(SELECT_CARD))
         {
-            sprite_object_erase_text_under((SpriteObject*)joker_object);
+            sprite_object_erase_text_under(joker_object->sprite_object);
         }
         else if (key_released(SELECT_CARD))
         {
             sprite_object_print_price_under(
-                (SpriteObject*)joker_object,
+                joker_object->sprite_object,
                 joker_get_sell_value(joker_object->joker)
             );
         }

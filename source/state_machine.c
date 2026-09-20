@@ -4,7 +4,7 @@
 #include "list.h"
 #include "util.h"
 
-static List s_update_cbs = LIST_DEFAULT;
+static List update_cbs = LIST_DEFAULT;
 
 // Used as a No Operation for game states that have no init and/or exit function.
 // ricfehr3 did the work of determining whether a noop or a NULL check was more
@@ -15,29 +15,33 @@ void noop(void) {};
 
 void state_machine_register(StateMachine* state_machine)
 {
-    if (state_machine->registered)
+    if (state_machine == NULL || state_machine->registered)
         return;
-
-    state_machine->registered = true;
 
     state_machine->active_update = noop;
     state_machine->state = UNDEFINED;
 
-    list_push_back(&s_update_cbs, &state_machine->active_update);
+    /*
+     * Registration is transactional.  Marking the machine registered when
+     * the fixed ListNode pool rejected its callback made the state look alive
+     * even though it could never receive another update.
+     */
+    state_machine->registered =
+        list_push_back(&update_cbs, &state_machine->active_update);
 }
 
 void state_machine_remove(StateMachine* state_machine)
 {
-    if (!state_machine->registered)
+    if (state_machine == NULL || !state_machine->registered)
         return;
 
     state_machine->registered = false;
-    list_remove_data(&s_update_cbs, &state_machine->active_update);
+    list_remove_data(&update_cbs, &state_machine->active_update);
 }
 
 void state_machine_update(void)
 {
-    ListItr itr = list_itr_create(&s_update_cbs);
+    ListItr itr = list_itr_create(&update_cbs);
     StateCallback* cb;
     while ((cb = list_itr_next(&itr)))
     {
@@ -47,7 +51,7 @@ void state_machine_update(void)
 
 void state_machine_change_state(StateMachine* state_machine, int new_state)
 {
-    if (!state_machine->registered)
+    if (state_machine == NULL || !state_machine->registered)
         return;
 
     if (state_machine->state >= 0 && state_machine->state < state_machine->num_infos)

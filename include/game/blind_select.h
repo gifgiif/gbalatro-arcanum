@@ -11,22 +11,22 @@
 /**
  * @brief Change to the blind select background
  */
-void blind_select_change_background(void);
+void game_blind_select_change_background(void);
 
 /**
  * @brief Blind select state initialization
  */
-void blind_select_on_init(void);
+void game_blind_select_on_init(void);
 
 /**
  * @brief Blind select state update
  */
-void blind_select_on_update(void);
+void game_blind_select_on_update(void);
 
 /**
  * @brief Blind select cleanup
  */
-void blind_select_on_exit(void);
+void game_blind_select_on_exit(void);
 
 void increment_blind(enum BlindState increment_reason);
 

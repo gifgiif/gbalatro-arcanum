@@ -4,6 +4,7 @@
 #include "test_structures.h"
 
 #include <stdbool.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -21,7 +22,7 @@ void print_time_diff(timestamp_t start, timestamp_t end)
 {
     int64_t diff_nsec = end.tv_nsec - start.tv_nsec;
 
-    printf("Elapsed: %ld ns\n", diff_nsec);
+    printf("Elapsed: %" PRId64 " ns\n", diff_nsec);
 }
 
 int get_random(int low, int high)
@@ -66,6 +67,30 @@ bool test_fill_and_empty(void)
     return true;
 }
 
+bool test_rejects_foreign_pointer(void)
+{
+    ChunkOfData foreign = {0};
+    if (POOL_IDX(ChunkOfData, NULL) != UNDEFINED ||
+        POOL_IDX(ChunkOfData, &foreign) != UNDEFINED)
+    {
+        fprintf(stderr, "Error: foreign pointer reported as a pool entry\n");
+        return false;
+    }
+
+    /*
+     * A stale/corrupt pointer must not write outside the allocation bitset or
+     * consume a valid slot.  This is a release-build safety net for fixed GBA
+     * pools, not just a debug assertion.
+     */
+    POOL_FREE(ChunkOfData, &foreign);
+    ChunkOfData* myPtrs[TEST_SIZE];
+    if (!test_fill(myPtrs, TEST_SIZE))
+        return false;
+    for (int i = 0; i < TEST_SIZE; i++)
+        POOL_FREE(ChunkOfData, myPtrs[i]);
+    return true;
+}
+
 bool test_fill_and_remove_at_random_and_refill_and_empty(void)
 {
     ChunkOfData* myPtrs[TEST_SIZE];
@@ -93,6 +118,9 @@ bool test_fill_and_remove_at_random_and_refill_and_empty(void)
 
 int main(void)
 {
+    printf("Testing rejection of foreign pointers.\n");
+    if(!test_rejects_foreign_pointer()) return UNDEFINED;
+
     // Test it twice to make sure empty works, kinda hacky.
     printf("Testing Pool Fill and Empty 1x.\n");
     if(!test_fill_and_empty()) return UNDEFINED;

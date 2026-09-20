@@ -151,7 +151,7 @@ bool list_is_empty(const List* list);
  * @param list pointer to a @ref List
  * @param data pointer to data to put into the @ref List
  */
-void list_push_front(List* list, void* data);
+bool list_push_front(List* list, void* data);
 
 /**
  * Append an entry to the `tail` of a @ref list
@@ -159,7 +159,7 @@ void list_push_front(List* list, void* data);
  * @param list pointer to a @ref List
  * @param data pointer to data to put into the @ref List
  */
-void list_push_back(List* list, void* data);
+bool list_push_back(List* list, void* data);
 
 /**
  * Insert data into a @ref List a specific index

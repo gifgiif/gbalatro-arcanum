@@ -244,6 +244,19 @@ static void disable_all_outlines_except_self(Selection sel_btn)
     }
 }
 
+static void sync_volume_row_outlines(void)
+{
+    int selected_row = options_menu_selection_grid.selection.y;
+    button_set_highlight(
+        &options_menu_buttons[MUSIC_VOLUME_ROW_IDX][0],
+        selected_row == MUSIC_VOLUME_ROW_IDX
+    );
+    button_set_highlight(
+        &options_menu_buttons[SOUND_VOLUME_ROW_IDX][0],
+        selected_row == SOUND_VOLUME_ROW_IDX
+    );
+}
+
 static void update_game_speed_button_graphics()
 {
     // check if need to disable game speed arrows
@@ -286,7 +299,6 @@ static void update_volume_slider_graphics(enum OptionButtonRows sel_row)
     Rect slider_segment_full;
     Rect slider_segment_mid;
     Rect slider_segment_empty;
-    BG_POINT slider_text_pos;
 
     switch (sel_row)
     {
@@ -297,7 +309,6 @@ static void update_volume_slider_graphics(enum OptionButtonRows sel_row)
             slider_segment_full = OPTIONS_MUSIC_SLIDER_FULL_SRC;
             slider_segment_mid = OPTIONS_MUSIC_SLIDER_MID_SRC;
             slider_segment_empty = OPTIONS_MUSIC_SLIDER_EMPTY_SRC;
-            slider_text_pos = OPTIONS_MUSIC_VALUE_TEXT_POS;
             break;
         case SOUND_VOLUME_ROW_IDX:
             slider_value = g_game_vars.sound_volume;
@@ -306,7 +317,6 @@ static void update_volume_slider_graphics(enum OptionButtonRows sel_row)
             slider_segment_full = OPTIONS_SOUND_SLIDER_FULL_SRC;
             slider_segment_mid = OPTIONS_SOUND_SLIDER_MID_SRC;
             slider_segment_empty = OPTIONS_SOUND_SLIDER_EMPTY_SRC;
-            slider_text_pos = OPTIONS_SOUND_VALUE_TEXT_POS;
             break;
         // This function only takes in a volume slider
         default:
@@ -347,16 +357,51 @@ static void update_volume_slider_graphics(enum OptionButtonRows sel_row)
         }
     }
 
+}
+
+static void update_volume_row_text(enum OptionButtonRows row, bool highlighted)
+{
+    const char* label;
+    BG_POINT label_pos;
+    BG_POINT value_pos;
+    u8 slider_value;
+
+    switch (row)
+    {
+        case MUSIC_VOLUME_ROW_IDX:
+            label = "Music Volume";
+            label_pos = OPTIONS_MUSIC_VOLUME_TEXT_POS;
+            value_pos = OPTIONS_MUSIC_VALUE_TEXT_POS;
+            slider_value = g_game_vars.music_volume;
+            break;
+        case SOUND_VOLUME_ROW_IDX:
+            label = "Sound Volume";
+            label_pos = OPTIONS_SOUND_VOLUME_TEXT_POS;
+            value_pos = OPTIONS_SOUND_VALUE_TEXT_POS;
+            slider_value = g_game_vars.sound_volume;
+            break;
+        default:
+            return;
+    }
+
+    int text_palette = highlighted ? TTE_YELLOW_PB : TTE_WHITE_PB;
+    tte_printf(
+        "#{P:%d,%d; cx:0x%X000}%s",
+        label_pos.x,
+        label_pos.y,
+        text_palette,
+        label
+    );
     tte_printf(
         "#{P:%d,%d; cx:0x%X000}%3d",
-        slider_text_pos.x,
-        slider_text_pos.y,
-        TTE_WHITE_PB,
-        (slider_value * VOLUME_OPTION_INCREMENT)
+        value_pos.x,
+        value_pos.y,
+        text_palette,
+        slider_value * VOLUME_OPTION_INCREMENT
     );
 }
 
-void options_menu_change_background(void)
+void game_options_menu_change_background(void)
 {
     tte_erase_screen();
 
@@ -376,18 +421,8 @@ void options_menu_change_background(void)
         OPTIONS_CARD_SPRITES_TEXT_POS.y,
         TTE_WHITE_PB
     );
-    tte_printf(
-        "#{P:%d,%d; cx:0x%X000}Music Volume",
-        OPTIONS_MUSIC_VOLUME_TEXT_POS.x,
-        OPTIONS_MUSIC_VOLUME_TEXT_POS.y,
-        TTE_WHITE_PB
-    );
-    tte_printf(
-        "#{P:%d,%d; cx:0x%X000}Sound Volume",
-        OPTIONS_SOUND_VOLUME_TEXT_POS.x,
-        OPTIONS_SOUND_VOLUME_TEXT_POS.y,
-        TTE_WHITE_PB
-    );
+    update_volume_row_text(MUSIC_VOLUME_ROW_IDX, false);
+    update_volume_row_text(SOUND_VOLUME_ROW_IDX, false);
     tte_printf(
         "#{P:%d,%d; cx:0x%X000}Save     Cancel",
         OPTIONS_BACK_SAVE_TEXT_POS.x,
@@ -396,7 +431,7 @@ void options_menu_change_background(void)
     );
 }
 
-void options_menu_on_init(void)
+void game_options_menu_on_init(void)
 {
     change_background(BG_OPTIONS_MENU, false);
 
@@ -412,9 +447,15 @@ void options_menu_on_init(void)
     update_volume_slider_graphics(SOUND_VOLUME_ROW_IDX);
 }
 
-void options_menu_on_update(void)
+void game_options_menu_on_update(void)
 {
     selection_grid_process_input(&options_menu_selection_grid);
+    /*
+     * Slider tiles are redrawn when their value changes. Reassert the outline
+     * from the actual cursor row every frame so the active volume control can
+     * never be left with its normal coloured border.
+     */
+    sync_volume_row_outlines();
 
     // game speed arrows small animation: they stay highlighted for a few frames
     if (game_speed_arrow_highlight_start != UNDEFINED &&
@@ -426,7 +467,7 @@ void options_menu_on_update(void)
     }
 }
 
-void options_menu_on_exit(void)
+void game_options_menu_on_exit(void)
 {
     tte_erase_screen();
 }
@@ -599,7 +640,13 @@ static bool music_volume_row_on_selection_changed(
     change_button_highlight(row_idx, prev_selection, new_selection);
 
     if (prev_selection->y != new_selection->y)
+    {
+        update_volume_row_text(
+            MUSIC_VOLUME_ROW_IDX,
+            new_selection->y == MUSIC_VOLUME_ROW_IDX
+        );
         return true;
+    }
 
     if (key_hit(KEY_LEFT) && g_game_vars.music_volume > VOLUME_OPTION_MIN)
     {
@@ -611,6 +658,7 @@ static bool music_volume_row_on_selection_changed(
     }
 
     update_volume_slider_graphics(MUSIC_VOLUME_ROW_IDX);
+    update_volume_row_text(MUSIC_VOLUME_ROW_IDX, true);
     set_volume(volume_module_step_to_val(g_game_vars.music_volume));
 
     return true;
@@ -626,7 +674,13 @@ static bool sound_volume_row_on_selection_changed(
     change_button_highlight(row_idx, prev_selection, new_selection);
 
     if (prev_selection->y != new_selection->y)
+    {
+        update_volume_row_text(
+            SOUND_VOLUME_ROW_IDX,
+            new_selection->y == SOUND_VOLUME_ROW_IDX
+        );
         return true;
+    }
 
     if (key_hit(KEY_LEFT) && g_game_vars.sound_volume > VOLUME_OPTION_MIN)
     {
@@ -638,6 +692,7 @@ static bool sound_volume_row_on_selection_changed(
     }
 
     update_volume_slider_graphics(SOUND_VOLUME_ROW_IDX);
+    update_volume_row_text(SOUND_VOLUME_ROW_IDX, true);
 
     return true;
 }

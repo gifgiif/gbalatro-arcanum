@@ -4,13 +4,13 @@
 #include "game/common_ui.h"
 #include "game_variables.h"
 #include "graphic_utils.h"
-#include "item.h"
 
 #include <tonc.h>
 
-#define MAX_DECK_SIZE        52
-#define MAX_JOKERS_HELD_SIZE 5 // This doesn't account for negatives right now.
-#define MAX_SHOP_ITEMS       2 // TODO: Make this dynamic
+#define MAX_DECK_SIZE        64
+#define BASE_JOKERS_HELD_SIZE 5
+#define MAX_JOKERS_HELD_SIZE  8
+#define MAX_SHOP_JOKERS       4
 #define MAX_SELECTION_SIZE   5
 #define FRAMES(x)            (((x) + (g_game_vars.game_speed) - 1) / (g_game_vars.game_speed))
 
@@ -40,6 +40,7 @@ typedef struct List List;
 // Utility functions for other files
 typedef struct CardObject CardObject;
 typedef struct Card Card;
+typedef struct Joker Joker;
 typedef struct JokerObject JokerObject;
 
 // Enum value names in ../include/def_state_info_table.h
@@ -52,8 +53,29 @@ enum GameState
     GAME_STATE_UNDEFINED
 };
 
+enum PlayState
+{
+    PLAY_STARTING,
+    PLAY_BEFORE_SCORING,
+    PLAY_SCORING_CARDS,
+    PLAY_SCORING_CARD_JOKERS,
+    PLAY_SCORING_HELD_CARDS,
+    PLAY_SCORING_INDEPENDENT_JOKERS,
+    PLAY_SCORING_HAND_SCORED_END,
+    PLAY_ENDING,
+    PLAY_ENDED
+};
+
 // Game functions
 void game_init(void);
+int game_get_joker_capacity(void);
+bool game_can_add_joker(const Joker* joker);
+bool game_is_joker_disabled(const JokerObject* joker);
+int game_export_deck(Card* cards, int capacity);
+bool game_restore_deck(const Card* cards, int count);
+void game_clear_deck(void);
+bool game_debug_apply_card_modifier(int category, int value);
+const char* game_get_boss_card_reward(void);
 
 /**
  * @brief Called when exiting the Game Over screen (both win or lose) to reset game variables
@@ -69,28 +91,31 @@ void game_update(void);
 void game_change_state(enum GameState new_game_state);
 enum GameState game_get_state(void);
 
+CardObject** get_played_array(void);
+void game_notify_joker_sold(void);
+int get_played_top(void);
+int get_scored_card_index(void);
 bool is_joker_owned(int joker_id);
-bool joker_object_can_acquire(Item* item);
-bool card_is_face(Card* card);
-void add_joker(JokerObject* joker_object);
+bool card_is_face(const Card* card);
+bool add_joker(JokerObject* joker_object);
 void remove_owned_joker(int owned_joker_idx);
 List* get_jokers_list(void);
 List* get_expired_jokers_list(void);
 List* get_discarded_jokers_list(void);
 
-int deck_get_size(void);
 int get_deck_top(void);
-void deck_push(Card* card);
-Card* deck_pop(void);
-void deck_shuffle(void);
 int get_num_discards_remaining(void);
 int get_num_hands_remaining(void);
 
 void display_deck_size_max(void);
+u32 get_chips(void);
+void set_chips(u32 new_chips);
 void display_chips(void);
+u32 get_mult(void);
+void set_mult(u32 new_mult);
 void display_mult(void);
 void display_money(void);
-void display_ante(void);
+void set_retrigger(bool new_retrigger);
 
 // joker specific functions
 bool is_shortcut_joker_active(void);
@@ -98,11 +123,21 @@ int get_straight_and_flush_size(void);
 
 void game_start(void);
 
+// Temporary change for Refactor. Currently this compatibility binder is to allow
+// simultaneous integration of the new system in `common_ui` with the the existing
+// old system incrementally and without losing functionality.
+void change_background_legacy(enum BackgroundId id);
+
 void display_round(void);
+
+void reset_background(void);
 void display_hands(void);
 void display_discards(void);
-void display_temp_score(u32 value);
-void erase_temp_score(void);
 void display_score(u32 value);
+void display_status_panel(void);
+
+// Compile-time debug menu helpers. They are inert in DEBUG_MENU=0 builds.
+bool game_debug_add_alchemical(enum AlchemicalId id);
+void game_debug_win_blind(void);
 
 #endif // GAME_H

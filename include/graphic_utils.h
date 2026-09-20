@@ -511,6 +511,47 @@ void memcpy32_tile8_with_palette_offset(u32* dst, const u32* src, uint wcount, u
 void toggle_windows(bool win0, bool win1);
 
 /**
+ * @brief Find the brightest non-transparent colour in an OBJ palette bank.
+ *
+ * Focus outlines must stay inside an object's existing 4bpp palette on GBA.
+ * This helper selects the entry that reads closest to white without reserving
+ * another scarce OBJ palette bank.
+ */
+u8 obj_palette_brightest_color_index(int palette_bank);
+
+/**
+ * @brief Finds the darkest non-transparent color in an OBJ palette bank.
+ */
+u8 obj_palette_darkest_color_index(int palette_bank);
+
+/**
+ * @brief Add a one-pixel white-style silhouette around 4bpp tiled OBJ art.
+ *
+ * Only transparent pixels neighbouring visible pixels are changed, so the
+ * card artwork itself is never covered. Width and height must be multiples of
+ * eight and no larger than 32 pixels.
+ */
+void obj_tiles_add_outline_4bpp(u8* tiles, int width, int height, u8 color_index);
+
+/**
+ * @brief Draw a thin rounded cursor frame on a 32x32 playing-card tile block.
+ *
+ * Unlike a pure silhouette outline, this also recolours the existing top and
+ * bottom edge. Those are the only edges guaranteed to remain visible when the
+ * cards in a hand overlap horizontally.
+ */
+void obj_tiles_add_card_cursor_frame_4bpp(
+    u8* tiles,
+    u8 outer_color_index,
+    u8 separator_color_index
+);
+
+/**
+ * @brief Restores the bottom row of the top-left panel from the background map.
+ */
+void reset_top_left_panel_bottom_row(void);
+
+/**
  * @brief Justify a text with custom formatting tags according to the given
  *         justification and bias direction tags
  *
@@ -521,8 +562,8 @@ void toggle_windows(bool win0, bool win1);
  *
  * @param raw_text The unformatted text. The '\n' character and custom formatting `{TAGS}` will
  *                  not count towards the computed line widths, as they won't appear on screen.
- * @param dst_rect Rectangle the justified text must fit into. Will overflow at the bottom if
- *                  text is too long. Size in tiles
+ * @param dst_rect Rectangle the justified text must fit into. Text beyond its bottom edge is
+ *                  measured but not printed. Size in tiles
  * @param justify_direction Align the text either to the left or center.
  * @param bias_direction Used with `JUSTIFY_CENTER` only. Determines if lines that cannot be
  *                        centered are to be slightly to the left or to the right.

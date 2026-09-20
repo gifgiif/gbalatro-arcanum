@@ -6,8 +6,11 @@
 #include "audio_utils.h"
 #include "bitset.h"
 #include "card.h"
+#include "deck_rules.h"
 #include "game.h"
+#include "game/shop.h"
 #include "game_variables.h"
+#include "hand.h"
 #include "joker.h"
 #include "list.h"
 #include "util.h"
@@ -35,6 +38,8 @@
 #define GIT_HASH_START  17 // starts after "GBALATRO-VERSION:" in the gbalatro_version var
 
 #define SAVE_LABEL_SIZE 16
+#define SAVE_GAME_FORMAT 9
+#define SAVE_MIN_ANTE    1
 
 // clang-format off
 /**
@@ -52,7 +57,7 @@
 typedef struct SaveHeader
 {
     u32 magic;
-    bool dirty;
+    u8 dirty;
     char githash[CHECK_HASH_SIZE];
     u32 valid_sections;
 } SaveHeader;
@@ -87,8 +92,8 @@ typedef struct SaveOptions
 {
     char tag_options[SAVE_LABEL_SIZE];
     u8 game_speed;
-    bool cards_high_contrast;
-    bool cards_more_readable;
+    u8 cards_high_contrast;
+    u8 cards_more_readable;
     u8 music_volume;
     u8 sound_volume;
     s8 padding[11];
@@ -122,7 +127,9 @@ static const SaveOptions SaveOptions_default = {
 typedef struct JokerObjectSaveData
 {
     u32 id;
-    u32 persistent_state;
+    u32 modifier;
+    s32 scoring_state;
+    s32 persistent_state;
 } JokerObjectSaveData;
 
 // clang-format off
@@ -164,7 +171,17 @@ typedef struct SaveGame
     int round;
     int ante;
     int money;
-    s32 padding[2];
+    u32 format_version;
+    int hand_size;
+    int deck_type;
+    int current_blind;
+    int next_boss_blind;
+    int blinds_states[NUM_BLINDS_PER_ANTE];
+    AlchemicalInventory alchemy;
+    VoucherState vouchers;
+    u16 hand_play_counts[ALCHEMICAL_HAND_TYPE_COUNT];
+    int card_count;
+    Card cards[MAX_DECK_SIZE];
 
     char tag_jokers[SAVE_LABEL_SIZE];
     JokerObjectSaveData jokers_data[MAX_JOKERS_HELD_SIZE];
@@ -178,17 +195,49 @@ typedef struct SaveGame
 static const SaveGame SaveGame_default = {
     .tag_internal = "-INTERNAL DATA -",
     .timer = 0,
-    .rng_info = {0, {0}},
+    .rng_info = {0, 0},
     .round = 0,
     .ante = 0,
     .money = 0,
-    .padding = {UNDEFINED, UNDEFINED},
+    .format_version = SAVE_GAME_FORMAT,
+    .hand_size = DEFAULT_HAND_SIZE,
+    .deck_type = DECK_TYPE_RED,
+    .current_blind = BLIND_TYPE_SMALL,
+    .next_boss_blind = BLIND_TYPE_BOSS,
+    .blinds_states = {
+        BLIND_STATE_CURRENT,
+        BLIND_STATE_UPCOMING,
+        BLIND_STATE_UPCOMING
+    },
+    .alchemy = {
+        .held = {
+            ALCHEMICAL_INVALID_ID,
+            ALCHEMICAL_INVALID_ID,
+            ALCHEMICAL_INVALID_ID
+        },
+        .count = 0,
+        .used_count = 0,
+        .hand_levels = {}
+    },
+    .vouchers = {
+        .owned_mask = 0,
+        .offer_id = VOUCHER_INVALID_ID,
+        .offer_ante = VOUCHER_INVALID_ID
+    },
+    .hand_play_counts = {},
+    .card_count = 0,
+    .cards = {},
 
     .tag_jokers = "- OWNED JOKERS -",
     .jokers_data = {},
 
     .tag_end = "_END"
 };
+
+_Static_assert(
+    GAME_ADDRESS + sizeof(SaveGame) <= SRAM_SIZE,
+    "SaveGame exceeds available GBA SRAM"
+);
 
 /**
  * @brief Write raw binary data to SRAM
@@ -323,6 +372,22 @@ void load_options(void)
     if (get_save_header(&header) && (header.valid_sections & SAVE_SECTION_FLAG_OPTIONS))
         read_sram(OPTIONS_ADDRESS, (u8*)&options, sizeof(options));
 
+    /*
+     * A valid header does not guarantee that the option payload survived.
+     * In particular, game_speed is used as an array index by the Settings UI.
+     * Clamp all persisted values before exposing them to runtime code.
+     */
+    if (options.game_speed < GAME_SPEED_MIN || options.game_speed > GAME_SPEED_MAX)
+        options.game_speed = DEFAULT_GAME_SPEED;
+    if (options.music_volume > VOLUME_OPTION_MAX)
+        options.music_volume = DEFAULT_MUSIC_VOLUME;
+    if (options.sound_volume > VOLUME_OPTION_MAX)
+        options.sound_volume = DEFAULT_SOUND_VOLUME;
+    if (options.cards_high_contrast > 1)
+        options.cards_high_contrast = DEFAULT_HIGH_CONTRAST;
+    if (options.cards_more_readable > 1)
+        options.cards_more_readable = DEFAULT_MORE_READABLE;
+
     g_game_vars.game_speed = options.game_speed;
     g_game_vars.music_volume = options.music_volume;
     g_game_vars.sound_volume = options.sound_volume;
@@ -335,7 +400,107 @@ void load_options(void)
 bool is_game_data_valid(void)
 {
     SaveHeader header;
-    return get_save_header(&header) && (header.valid_sections & SAVE_SECTION_FLAG_GAME);
+    if (!get_save_header(&header) || !(header.valid_sections & SAVE_SECTION_FLAG_GAME))
+        return false;
+    SaveGame game = SaveGame_default;
+    read_sram(GAME_ADDRESS, (u8*)&game, sizeof(game));
+    if (game.format_version != SAVE_GAME_FORMAT ||
+        memcmp(game.tag_internal, SaveGame_default.tag_internal, SAVE_LABEL_SIZE) != 0 ||
+        memcmp(game.tag_jokers, SaveGame_default.tag_jokers, SAVE_LABEL_SIZE) != 0 ||
+        memcmp(game.tag_end, SaveGame_default.tag_end, sizeof(game.tag_end)) != 0 ||
+        game.card_count <= 0 || game.card_count > MAX_DECK_SIZE ||
+        game.rng_info.seed > MAX_BASE36 ||
+        game.rng_info.step > RNG_MAX_RESTORE_STEPS ||
+        game.timer < 0 || game.round < 0 ||
+        game.round > MAX_ANTE * NUM_BLINDS_PER_ANTE ||
+        game.ante < SAVE_MIN_ANTE || game.ante > MAX_ANTE ||
+        game.money < 0 || game.hand_size < 1 || game.hand_size > MAX_HAND_SIZE ||
+        game.deck_type < 0 || game.deck_type >= DECK_TYPE_MAX ||
+        game.current_blind < BLIND_TYPE_SMALL ||
+        game.current_blind >= BLIND_TYPE_MAX ||
+        game.next_boss_blind < BLIND_TYPE_BOSS ||
+        game.next_boss_blind >= BLIND_TYPE_MAX ||
+        game.alchemy.count > ALCHEMICAL_HELD_LIMIT ||
+        !voucher_state_is_valid(&game.vouchers) ||
+        game.vouchers.offer_ante < VOUCHER_INVALID_ID ||
+        game.vouchers.offer_ante > MAX_ANTE)
+        return false;
+
+    int expected_current_slot =
+        game.current_blind == BLIND_TYPE_SMALL
+            ? SMALL_BLIND
+            : game.current_blind == BLIND_TYPE_BIG ? BIG_BLIND : BOSS_BLIND;
+    int current_slots = 0;
+    for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
+    {
+        if (game.blinds_states[i] < BLIND_STATE_CURRENT ||
+            game.blinds_states[i] >= BLIND_STATE_MAX)
+            return false;
+        current_slots += game.blinds_states[i] == BLIND_STATE_CURRENT;
+    }
+    /*
+     * A resumable snapshot represents the blind-select screen after the shop.
+     * More than one CURRENT marker, or a marker that disagrees with
+     * current_blind, sends selection/render code down incompatible branches.
+     */
+    if (current_slots != 1 ||
+        game.blinds_states[expected_current_slot] != BLIND_STATE_CURRENT)
+        return false;
+    for (int i = 0; i < expected_current_slot; i++)
+        if (game.blinds_states[i] != BLIND_STATE_DEFEATED &&
+            game.blinds_states[i] != BLIND_STATE_SKIPPED)
+            return false;
+    for (int i = expected_current_slot + 1; i < NUM_BLINDS_PER_ANTE; i++)
+        if (game.blinds_states[i] != BLIND_STATE_UPCOMING)
+            return false;
+    for (int i = 0; i < game.alchemy.count; i++)
+        if (alchemical_get_info((enum AlchemicalId)game.alchemy.held[i]) == NULL)
+            return false;
+    for (int i = game.alchemy.count; i < ALCHEMICAL_HELD_LIMIT; i++)
+        if (game.alchemy.held[i] != ALCHEMICAL_INVALID_ID)
+            return false;
+    for (int i = 0; i < ALCHEMICAL_HAND_TYPE_COUNT; i++)
+        if (game.alchemy.hand_levels[i] > 20)
+            return false;
+    for (int i = 0; i < game.card_count; i++)
+        if (game.cards[i].suit >= NUM_SUITS || game.cards[i].rank >= NUM_RANKS ||
+            game.cards[i].enhancement >= CARD_ENHANCEMENT_COUNT ||
+            game.cards[i].edition >= CARD_EDITION_COUNT ||
+            game.cards[i].seal >= CARD_SEAL_COUNT ||
+            game.cards[i].alchemy_original_suit >= NUM_SUITS ||
+            game.cards[i].alchemy_flags != 0 ||
+            (game.cards[i].boss_flags & (u8)~CARD_BOSS_PLAYED_ANTE) != 0)
+            return false;
+    bool reached_joker_end = false;
+    int saved_joker_count = 0;
+    int negative_joker_count = 0;
+    for (int i = 0; i < MAX_JOKERS_HELD_SIZE; i++)
+    {
+        JokerObjectSaveData data = game.jokers_data[i];
+        if (data.id == (u32)UNDEFINED)
+        {
+            reached_joker_end = true;
+            continue;
+        }
+        if (reached_joker_end)
+            return false;
+        if (data.id >= get_joker_registry_size() || data.modifier >= MAX_EDITIONS)
+            return false;
+        if (data.id == SELTZER_JOKER_ID &&
+            (data.persistent_state < 1 || data.persistent_state > 10))
+            return false;
+        saved_joker_count++;
+        negative_joker_count += data.modifier == NEGATIVE_EDITION;
+    }
+    int saved_joker_capacity = deck_get_joker_capacity(
+        (enum DeckType)game.deck_type,
+        voucher_get_joker_capacity(&game.vouchers, BASE_JOKERS_HELD_SIZE)
+    );
+    saved_joker_capacity =
+        min(MAX_JOKERS_HELD_SIZE, saved_joker_capacity + negative_joker_count);
+    if (saved_joker_count > saved_joker_capacity)
+        return false;
+    return true;
 }
 
 void save_game(void)
@@ -346,28 +511,59 @@ void save_game(void)
 
     game.timer = g_game_vars.timer;
     game.rng_info = g_game_vars.rng_info;
+    /*
+     * Resume reconstructs libc's RNG sequence by replaying it.  Never write a
+     * snapshot that the bounded restore path would later reject or hang on.
+     * Runs beyond the replay budget resume from the nearest safe checkpoint.
+     */
+    game.rng_info.step = min(game.rng_info.step, RNG_MAX_RESTORE_STEPS);
     game.round = g_game_vars.round;
     game.ante = g_game_vars.ante;
     game.money = g_game_vars.money;
+    game.format_version = SAVE_GAME_FORMAT;
+    game.hand_size = g_game_vars.hand_size;
+    game.deck_type = g_game_vars.deck;
+    game.current_blind = g_game_vars.current_blind;
+    game.next_boss_blind = g_game_vars.next_boss_blind;
+    for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
+        game.blinds_states[i] = g_game_vars.blinds_states[i];
+    game.alchemy = g_game_vars.alchemy;
+    game.vouchers = g_game_vars.vouchers;
+    memcpy(
+        game.hand_play_counts,
+        g_game_vars.hand_play_counts,
+        sizeof(game.hand_play_counts)
+    );
+    game.card_count = game_export_deck(game.cards, MAX_DECK_SIZE);
+    /*
+     * A run with no exportable deck cannot be resumed. Keep the previous
+     * valid SRAM snapshot instead of replacing it with an invalid save.
+     */
+    if (game.card_count <= 0 || game.card_count > MAX_DECK_SIZE)
+        return;
 
     // Lists
 
     List* jokers_list = get_jokers_list();
-    int nb_jokers = list_get_len(jokers_list);
-
+    ListItr itr = list_itr_create(jokers_list);
     int i = 0;
-    for (; i < nb_jokers; i++)
+    JokerObject* joker_object = NULL;
+    while (i < MAX_JOKERS_HELD_SIZE &&
+           (joker_object = list_itr_next(&itr)) != NULL)
     {
-        JokerObject* joker_object = list_get_at_idx(jokers_list, (u32)i);
+        if (joker_object->joker == NULL)
+            continue;
         JokerObjectSaveData data = {
             (u32)joker_object->joker->id,
+            (u32)joker_object->joker->modifier,
+            joker_object->joker->scoring_state,
             joker_object->joker->persistent_state
         };
-        game.jokers_data[i] = data;
+        game.jokers_data[i++] = data;
     }
     for (; i < MAX_JOKERS_HELD_SIZE; i++)
     {
-        JokerObjectSaveData data = {UNDEFINED, UNDEFINED};
+        JokerObjectSaveData data = {UNDEFINED, UNDEFINED, UNDEFINED, UNDEFINED};
         game.jokers_data[i] = data;
     }
 
@@ -375,21 +571,118 @@ void save_game(void)
     set_save_header(SAVE_SECTION_FLAG_GAME);
 }
 
-void load_game(void)
+bool load_game(void)
 {
     SaveHeader header;
 
-    if (!get_save_header(&header) || !(header.valid_sections & SAVE_SECTION_FLAG_GAME))
-        return;
+    if (!get_save_header(&header) ||
+        !(header.valid_sections & SAVE_SECTION_FLAG_GAME) ||
+        !is_game_data_valid())
+        return false;
 
     SaveGame game = SaveGame_default;
     read_sram(GAME_ADDRESS, (u8*)&game, sizeof(game));
 
+    if (game.format_version != SAVE_GAME_FORMAT ||
+        !game_restore_deck(game.cards, game.card_count))
+    {
+        return false;
+    }
+
+    while (!list_is_empty(get_jokers_list()))
+    {
+        JokerObject* joker_object = list_get_at_idx(get_jokers_list(), 0);
+        if (joker_object != NULL && joker_object->joker != NULL)
+            game_shop_set_joker_avail(joker_object->joker->id, true);
+        remove_owned_joker(0);
+        joker_object_destroy(&joker_object);
+    }
+
+    for (int i = 0; i < MAX_JOKERS_HELD_SIZE; i++)
+    {
+        JokerObjectSaveData data = game.jokers_data[i];
+        if (data.id == (u32)UNDEFINED)
+            break;
+
+        Joker* joker = joker_new_with_modifier((u8)data.id, (u8)data.modifier);
+        if (joker == NULL)
+            goto load_failed;
+        joker->scoring_state = data.scoring_state;
+        joker->persistent_state = data.persistent_state;
+
+        JokerObject* joker_object = joker_object_new(joker);
+        if (joker_object == NULL)
+        {
+            joker_destroy(&joker);
+            goto load_failed;
+        }
+        if (!add_joker(joker_object))
+        {
+            joker_object_destroy(&joker_object);
+            goto load_failed;
+        }
+        game_shop_set_joker_avail(joker->id, false);
+    }
+
+    /*
+     * Commit scalar run state only after every fixed-pool object has been
+     * reconstructed. Resume is therefore all-or-nothing instead of opening a
+     * run with missing Jokers or half a deck.
+     */
     g_game_vars.timer = game.timer;
     rng_restore(game.rng_info);
     g_game_vars.round = game.round;
     g_game_vars.ante = game.ante;
     g_game_vars.money = game.money;
+    g_game_vars.hand_size = clamp(game.hand_size, 1, MAX_HAND_SIZE);
+    g_game_vars.deck = clamp(game.deck_type, 0, DECK_TYPE_MAX - 1);
+    g_game_vars.current_blind =
+        clamp(game.current_blind, BLIND_TYPE_SMALL, BLIND_TYPE_MAX - 1);
+    g_game_vars.next_boss_blind =
+        clamp(game.next_boss_blind, BLIND_TYPE_BOSS, BLIND_TYPE_MAX - 1);
+    for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
+        g_game_vars.blinds_states[i] =
+            clamp(game.blinds_states[i], BLIND_STATE_CURRENT, BLIND_STATE_MAX - 1);
 
-    // TODO: load Jokers from stored minimal data
+    alchemical_inventory_reset(&g_game_vars.alchemy);
+    for (int i = 0; i < game.alchemy.count; i++)
+        alchemical_inventory_add(&g_game_vars.alchemy, game.alchemy.held[i]);
+    g_game_vars.alchemy.used_count = game.alchemy.used_count;
+    for (int i = 0; i < ALCHEMICAL_HAND_TYPE_COUNT; i++)
+        g_game_vars.alchemy.hand_levels[i] = game.alchemy.hand_levels[i];
+
+    voucher_state_reset(&g_game_vars.vouchers);
+    g_game_vars.vouchers = game.vouchers;
+    memcpy(
+        g_game_vars.hand_play_counts,
+        game.hand_play_counts,
+        sizeof(g_game_vars.hand_play_counts)
+    );
+    return true;
+
+load_failed:
+    while (!list_is_empty(get_jokers_list()))
+    {
+        JokerObject* joker_object = list_get_at_idx(get_jokers_list(), 0);
+        if (joker_object != NULL && joker_object->joker != NULL)
+            game_shop_set_joker_avail(joker_object->joker->id, true);
+        remove_owned_joker(0);
+        joker_object_destroy(&joker_object);
+    }
+    /*
+     * A failed Resume must not leave its successfully reconstructed deck in
+     * memory. Otherwise choosing New Run afterwards would mistake that deck
+     * for a loaded run and skip new-run initialization.
+     */
+    game_clear_deck();
+    return false;
+}
+
+void clear_game_save(void)
+{
+    SaveHeader header;
+    if (!get_save_header(&header))
+        return;
+    header.valid_sections &= ~SAVE_SECTION_FLAG_GAME;
+    write_sram(HEADER_ADDRESS, (const u8*)&header, sizeof(header));
 }

@@ -9,6 +9,7 @@
 #include <tonc_tte.h>
 
 static const Rect FULL_SCREENBLOCK_RECT = {0, 0, SE_ROW_LEN - 1, SE_COL_LEN - 1};
+static const Rect TOP_LEFT_PANEL_BOTTOM_ROW_RESET_RECT = {0, 28, 8, 28};
 
 static void clip_se_rect_to_screenblock(Rect* rect);
 static void bg_se_copy_or_move_rect_1_tile_vert(
@@ -103,12 +104,12 @@ static void main_bg_se_copy_or_move_rect_1_tile_vert(
 
 void bg_se_copy_rect_1_tile_vert(u16 bg_sbb, Rect se_rect, enum ScreenVertDir direction)
 {
-    bg_se_copy_or_move_rect_1_tile_vert(MAIN_BG_SBB, se_rect, direction, false);
+    bg_se_copy_or_move_rect_1_tile_vert(bg_sbb, se_rect, direction, false);
 }
 
 void bg_se_move_rect_1_tile_vert(u16 bg_sbb, Rect se_rect, enum ScreenVertDir direction)
 {
-    bg_se_copy_or_move_rect_1_tile_vert(MAIN_BG_SBB, se_rect, direction, true);
+    bg_se_copy_or_move_rect_1_tile_vert(bg_sbb, se_rect, direction, true);
 }
 
 void main_bg_se_copy_rect_1_tile_vert(Rect se_rect, enum ScreenVertDir direction)
@@ -126,24 +127,59 @@ void main_bg_se_copy_rect(Rect se_rect, BG_POINT dest_pos)
     if (se_rect.left > se_rect.right || se_rect.top > se_rect.bottom)
         return;
 
-    // Clip to avoid screenblock overflow
+    // Clip the source first, then crop it again to the visible destination.
     clip_se_rect_to_screenblock(&se_rect);
 
-    int width = rect_width(&se_rect);
-    int height = rect_height(&se_rect);
-    SE tile_map[height][width];
+    int src_x_offset = max(0, -dest_pos.x);
+    int src_y_offset = max(0, -dest_pos.y);
+    int dest_x = max(0, dest_pos.x);
+    int dest_y = max(0, dest_pos.y);
+    int width = min(
+        rect_width(&se_rect) - src_x_offset,
+        SE_ROW_LEN - dest_x
+    );
+    int height = min(
+        rect_height(&se_rect) - src_y_offset,
+        SE_COL_LEN - dest_y
+    );
+    if (width <= 0 || height <= 0)
+        return;
 
-    // Copy the rect to the tile map
-    for (int sy = 0; sy < height; sy++)
+    /*
+     * Do not put a width*height VLA on the GBA stack.  A full screenblock
+     * copy used to reserve 2048 bytes here, while this ROM has only a few KiB
+     * of IWRAM left for the complete call stack.  That made otherwise harmless
+     * menu/description transitions capable of corrupting return addresses.
+     *
+     * A single fixed row is enough.  Select the vertical copy direction like
+     * memmove so an overlapping destination cannot overwrite a source row
+     * that has not been read yet.  memcpy16 is retained because byte writes
+     * are not safe for GBA VRAM.
+     */
+    SE row_buffer[SE_ROW_LEN];
+    int src_y = se_rect.top + src_y_offset;
+    int first_row = 0;
+    int last_row = height;
+    int step = 1;
+    if (dest_y > src_y && dest_y < src_y + height)
     {
-        memcpy16(&tile_map[sy][0], &se_mat[MAIN_BG_SBB][se_rect.top + sy][se_rect.left], width);
+        first_row = height - 1;
+        last_row = -1;
+        step = -1;
     }
 
-    // TODO: Avoid overflow
-    // Copy the tilemap to the new rect position
-    for (int sy = 0; sy < height; sy++)
+    for (int sy = first_row; sy != last_row; sy += step)
     {
-        memcpy16(&se_mat[MAIN_BG_SBB][dest_pos.y + sy][dest_pos.x], &tile_map[sy][0], width);
+        memcpy16(
+            row_buffer,
+            &se_mat[MAIN_BG_SBB][src_y + sy][se_rect.left + src_x_offset],
+            width
+        );
+        memcpy16(
+            &se_mat[MAIN_BG_SBB][dest_y + sy][dest_x],
+            row_buffer,
+            width
+        );
     }
 }
 
@@ -500,6 +536,14 @@ void main_bg_se_clear_rect(Rect se_rect)
     }
 }
 
+void reset_top_left_panel_bottom_row(void)
+{
+    BG_POINT top_left_panel_bottom_row_pos = TOP_LEFT_PANEL_POINT;
+    // Use the source rect height to offset to the bottom row point
+    top_left_panel_bottom_row_pos.y += rect_height(&TOP_LEFT_ITEM_SRC_RECT) - 1;
+    main_bg_se_copy_rect(TOP_LEFT_PANEL_BOTTOM_ROW_RESET_RECT, top_left_panel_bottom_row_pos);
+}
+
 // Width of the screen, in nb of tiles
 #define MAX_LINE_TEXT_LENGTH 30
 
@@ -511,6 +555,9 @@ int tte_printf_justified_in_rect(
     bool do_print
 )
 {
+    if (raw_text == NULL)
+        return 0;
+
     // These are the actual lengths of the line/token, which take the {TAGS} into account
 
     int raw_text_len = strlen(raw_text);
@@ -522,6 +569,9 @@ int tte_printf_justified_in_rect(
     // These lengths correspond to what will be visible on screen
 
     int max_line_text_len = rect_width(&dst_rect);
+    int max_line_count = rect_height(&dst_rect);
+    if (max_line_text_len <= 0 || max_line_count <= 0)
+        return 0;
 
     int line_text_len = 0;
     int token_text_len = 0;
@@ -529,9 +579,15 @@ int tte_printf_justified_in_rect(
     int line_x = 0;
     int line_y = 0;
 
-    // Will exit when there are no more words
-    while (line_start < raw_text_len)
+    /*
+     * A valid pass advances by at least one source byte. Keep an additional
+     * hard limit so malformed formatting can never lock the game loop.
+     */
+    int iterations_remaining = raw_text_len + 1;
+    while (line_start < raw_text_len && iterations_remaining-- > 0)
     {
+        int previous_line_start = line_start;
+
         // Need to do everything by hand, as it seems tte_printf does NOT stop at \0
         token_len = 0;
         token_text_len = 0;
@@ -540,6 +596,14 @@ int tte_printf_justified_in_rect(
         while (line_text_len <= max_line_text_len && token_start < raw_text_len)
         {
             int current_char = token_start + token_len;
+
+            if (current_char >= raw_text_len)
+            {
+                token_start = raw_text_len;
+                token_len = 0;
+                token_text_len = -1;
+                break;
+            }
 
             // Handle tags
             if (raw_text[current_char] == '#' && (current_char + 1) < raw_text_len &&
@@ -586,8 +650,43 @@ int tte_printf_justified_in_rect(
             line_text_len++;
         };
 
+        /*
+         * A single visible token wider than the destination previously left
+         * token_start unchanged. The outer loop would then process the same
+         * byte forever and lock the game while opening a description.
+         * Split such a token at the visible line width while copying any TTE
+         * formatting tag as an indivisible zero-width sequence.
+         */
+        if (token_start <= line_start)
+        {
+            int split = line_start;
+            int visible = 0;
+            while (split < raw_text_len && visible < max_line_text_len)
+            {
+                if (raw_text[split] == '#' && split + 1 < raw_text_len &&
+                    raw_text[split + 1] == '{')
+                {
+                    do
+                    {
+                        split++;
+                    } while (split < raw_text_len && raw_text[split - 1] != '}');
+                    continue;
+                }
+                if (raw_text[split] == '\n')
+                    break;
+                split++;
+                visible++;
+            }
+            if (split <= line_start)
+                split = line_start + 1;
+            token_start = split;
+            line_text_len = visible;
+            /* The normal overflow subtraction below must keep this segment. */
+            token_text_len = -1;
+        }
+
         // Do not print anything if we only need to compute the paragraph's total height
-        if (do_print)
+        if (do_print && line_y < max_line_count)
         {
             // Length of the raw slice for this line (includes formatting tags)
             int line_len = token_start - line_start;
@@ -628,9 +727,179 @@ int tte_printf_justified_in_rect(
         }
 
         line_start = token_start;
+        if (line_start <= previous_line_start)
+            line_start = previous_line_start + 1;
+        if (line_start > raw_text_len)
+            line_start = raw_text_len;
         line_text_len = 0;
         line_y++;
     }
 
     return line_y;
+}
+
+u8 obj_palette_brightest_color_index(int palette_bank)
+{
+    if (palette_bank < 0 || palette_bank >= NUM_PALETTES)
+        return 1;
+
+    u8 brightest = 1;
+    int brightest_luma = -1;
+    for (int i = 1; i < PAL_ROW_LEN; i++)
+    {
+        COLOR color = pal_obj_mem[palette_bank * PAL_ROW_LEN + i];
+        int luma = (color & 31) + ((color >> 5) & 31) + ((color >> 10) & 31);
+        if (luma > brightest_luma)
+        {
+            brightest_luma = luma;
+            brightest = i;
+        }
+    }
+    return brightest;
+}
+
+u8 obj_palette_darkest_color_index(int palette_bank)
+{
+    if (palette_bank < 0 || palette_bank >= NUM_PALETTES)
+        return 1;
+
+    u8 darkest = 1;
+    int darkest_luma = 32 * 3;
+    for (int i = 1; i < PAL_ROW_LEN; i++)
+    {
+        COLOR color = pal_obj_mem[palette_bank * PAL_ROW_LEN + i];
+        int luma = (color & 31) + ((color >> 5) & 31) + ((color >> 10) & 31);
+        if (luma < darkest_luma)
+        {
+            darkest_luma = luma;
+            darkest = i;
+        }
+    }
+    return darkest;
+}
+
+static inline u8 obj_tiles_get_pixel_4bpp(
+    const u8* tiles,
+    int tile_columns,
+    int x,
+    int y
+)
+{
+    int tile = (y / TILE_SIZE) * tile_columns + x / TILE_SIZE;
+    int offset = tile * 32 + (y % TILE_SIZE) * 4 + (x % TILE_SIZE) / 2;
+    return (x & 1) ? tiles[offset] >> 4 : tiles[offset] & 0x0F;
+}
+
+static inline void obj_tiles_set_pixel_4bpp(
+    u8* tiles,
+    int tile_columns,
+    int x,
+    int y,
+    u8 color
+)
+{
+    int tile = (y / TILE_SIZE) * tile_columns + x / TILE_SIZE;
+    int offset = tile * 32 + (y % TILE_SIZE) * 4 + (x % TILE_SIZE) / 2;
+    if (x & 1)
+        tiles[offset] = (tiles[offset] & 0x0F) | (color << 4);
+    else
+        tiles[offset] = (tiles[offset] & 0xF0) | color;
+}
+
+void obj_tiles_add_outline_4bpp(u8* tiles, int width, int height, u8 color_index)
+{
+    if (tiles == NULL || width <= 0 || height <= 0 || width > 32 || height > 32 ||
+        width % TILE_SIZE != 0 || height % TILE_SIZE != 0 || color_index == 0 ||
+        color_index >= PAL_ROW_LEN)
+    {
+        return;
+    }
+
+    /* One bit per destination pixel: 32 rows cost only 128 bytes temporarily. */
+    u32 outline_rows[32] = {0};
+    int tile_columns = width / TILE_SIZE;
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            if (obj_tiles_get_pixel_4bpp(tiles, tile_columns, x, y) == 0)
+                continue;
+
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int outline_y = y + dy;
+                if (outline_y < 0 || outline_y >= height)
+                    continue;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int outline_x = x + dx;
+                    if ((dx == 0 && dy == 0) || outline_x < 0 || outline_x >= width)
+                        continue;
+                    if (obj_tiles_get_pixel_4bpp(
+                            tiles,
+                            tile_columns,
+                            outline_x,
+                            outline_y
+                        ) == 0)
+                    {
+                        outline_rows[outline_y] |= 1U << outline_x;
+                    }
+                }
+            }
+        }
+    }
+
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            if (outline_rows[y] & (1U << x))
+                obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, y, color_index);
+}
+
+void obj_tiles_add_card_cursor_frame_4bpp(
+    u8* tiles,
+    u8 outer_color_index,
+    u8 separator_color_index
+)
+{
+    if (tiles == NULL || outer_color_index == 0 ||
+        outer_color_index >= PAL_ROW_LEN || separator_color_index == 0 ||
+        separator_color_index >= PAL_ROW_LEN)
+        return;
+
+    const int card_sprite_size = 32;
+    const int tile_columns = card_sprite_size / TILE_SIZE;
+
+    /* Rounded two-step top/bottom edge, matching the existing card shape. */
+    for (int x = 5; x <= 26; x++)
+    {
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 0, outer_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 31, outer_color_index);
+    }
+    for (int x = 4; x <= 27; x++)
+    {
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 1, outer_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 30, outer_color_index);
+    }
+
+    /* One outside pixel plus the existing edge makes the cursor unmistakable. */
+    for (int y = 2; y <= 29; y++)
+    {
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 3, y, outer_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 4, y, outer_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 27, y, outer_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 28, y, outer_color_index);
+    }
+
+    /* Playing cards already have a pale edge.  This inset dark keyline keeps
+     * the white cursor frame distinct instead of letting both edges merge. */
+    for (int x = 5; x <= 26; x++)
+    {
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 2, separator_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, x, 29, separator_color_index);
+    }
+    for (int y = 3; y <= 28; y++)
+    {
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 5, y, separator_color_index);
+        obj_tiles_set_pixel_4bpp(tiles, tile_columns, 26, y, separator_color_index);
+    }
 }

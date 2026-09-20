@@ -48,7 +48,8 @@ void save_game(void);
  *
  * @sa save_game
  */
-void load_game(void);
+bool load_game(void);
+void clear_game_save(void);
 
 /**
  * @brief Save options values to SRAM.

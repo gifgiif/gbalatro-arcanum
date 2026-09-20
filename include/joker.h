@@ -9,14 +9,13 @@
 #include "card.h"
 #include "game.h"
 #include "graphic_utils.h"
-#include "item.h"
-#include "random.h"
+#include "sprite.h"
 
 #include <maxmod.h>
 
 // This won't be more than the number of jokers in your current deck
 // plus the amount that can fit in the shop, 8 should be fine. For now...
-#define MAX_ACTIVE_JOKERS 8
+#define MAX_ACTIVE_JOKERS 12
 
 #define MAX_DEFINABLE_JOKERS 150
 
@@ -24,7 +23,7 @@
 #define JOKER_STARTING_LAYER 26
 // Tile ID for the starting index in the tile memory
 #define JOKER_TID     (JOKER_STARTING_LAYER * JOKER_SPRITE_OFFSET)
-#define JOKER_BASE_PB 4 // The starting palette index for the jokers, after the boss blind tokens
+#define JOKER_BASE_PB 5 // Palette bank 4 is reserved for Alchemical consumables
 #define JOKER_LAST_PB (NUM_PALETTES - 1)
 // Currently allocating the rest of the palettes for the jokers.
 // This number needs to be decreased once we need to allocated palettes for other sprites
@@ -45,9 +44,8 @@
 
 #define MAX_RARITIES (LEGENDARY_JOKER + 1)
 
-// Percent chance to get a joker of each rarity
-// Note that this deviates slightly from the Balatro wiki to allow legendary
-// jokers to appear without spectral cards implemented
+// Base-shop rarity rates from Balatro. Legendary Jokers stay out of normal
+// shop rolls and can be introduced later through their dedicated unlock path.
 #define COMMON_JOKER_CHANCE    70
 #define UNCOMMON_JOKER_CHANCE  25
 #define RARE_JOKER_CHANCE      5
@@ -96,9 +94,10 @@ enum JokerEvent
 #define BRAINSTORM_JOKER_ID   41
 #define PAREIDOLIA_JOKER_ID   46
 #define FOUR_FINGERS_JOKER_ID 50
+#define SELTZER_JOKER_ID      51
 #define BLUEPRINT_JOKER_ID    52
 
-typedef struct
+typedef struct Joker
 {
     u8 id;       // Unique ID for the joker, used to identify different jokers
     u8 modifier; // base, foil, holo, poly, negative
@@ -113,8 +112,8 @@ typedef struct
 
 typedef struct JokerObject
 {
-    Item; // First member struct inheritance
     Joker* joker;
+    SpriteObject* sprite_object;
 } JokerObject;
 
 typedef struct // These jokers are triggered after the played hand has finished scoring.
@@ -158,7 +157,10 @@ size_t get_joker_registry_size(void);
 void joker_init();
 
 Joker* joker_new(u8 id);
+Joker* joker_new_with_modifier(u8 id, u8 modifier);
 void joker_destroy(Joker** joker);
+const char* joker_get_edition_name(u8 modifier);
+const char* joker_get_edition_effect_short(u8 modifier);
 
 // Unique effects like "Four Fingers" or "Credit Card" will be hard coded into game.c with a
 // conditional check for the joker ID from the players owned jokers game.c should probably be
@@ -196,55 +198,21 @@ int joker_get_sell_value(const Joker* joker);
 
 JokerObject* joker_object_new(Joker* joker);
 void joker_object_destroy(JokerObject** joker_object);
+/** Draw/remove the white cursor outline and preserve the normal focus raise. */
+void joker_object_set_focus(JokerObject* joker_object, bool focus);
 // This doesn't actually score anything, it just performs an animation and plays a sound effect
 void joker_object_shake(JokerObject* joker_object, mm_word sound_id);
-
-/**
- * @brief Returns the buy price of the joker object.
- *
- * @param joker_object the joker object whose price to return.
- *
- * @return UNDEFINED in case of error, the buy price of the joker otherwise.
- */
-int joker_object_get_buy_price(Item* joker_object);
-
-// TODO: Move to an owned_jokers.c/.h file?
-/**
- * @brief Add a Joker to the list of owned Jokers and place it in the joker row.
- *
- * @param joker_object The JokerObject to add cast to Item*
- */
-void joker_object_add_to_owned(Item* joker_object);
-
-/**
- * @brief Destroy a JokerObject item, free its resources, and make it available to be rolled.
- *
- * @param joker_object Pointer to the JokerObject Item* to destroy; set to NULL.
- */
-void joker_object_dispose(Item** joker_object);
-
-/**
- * @brief Set whether a Joker is available to be rolled for the shop, packs, etc.
- *
- * @param joker_id The ID of the joker whose availability to set.
- * @param rollable true to make it rollable, false otherwise.
- */
-void joker_set_rollable(int joker_id, bool rollable);
-
-/**
- * @brief Reset rollable jokers to include all jokers in the registry.
- */
-void joker_reset_rollable_jokers(void);
-
-/**
- * @brief Roll and create a new JokerObject item.
- *
- * @param key to the RNG sequence that will be used to roll the Joker ID.
- *
- * @return Newly created `Item*` (JokerObject) or NULL if none available.
- */
-Item* joker_object_roll_new(enum RngSequence key);
+// This scores the joker and returns true if it was scored successfully
+// card_object = NULL means the joker_event does not concern a particular Card, i.e. Independend or
+// On_Blind_Selected as opposed to events that concern a particular card, i.e. On_Card_Scored or
+// On_Card_Held
+bool joker_object_score(
+    JokerObject* joker_object,
+    CardObject* card_object,
+    enum JokerEvent joker_event
+);
 
 Sprite* joker_object_get_sprite(JokerObject* joker_object);
+int joker_get_random_rarity();
 
 #endif // JOKER_H

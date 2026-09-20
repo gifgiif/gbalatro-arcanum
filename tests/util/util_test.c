@@ -1,4 +1,5 @@
 #include <font.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <util.h>
 #include <assert.h>
@@ -207,7 +208,7 @@ void test_truncate_uint_to_suffixed_str()
     assert(strcmp(suffixed_str_buff, "4" FP2_STR "94B") == 0); // "4.294B"
 
     char max_uint_str_buff[UINT_MAX_DIGITS + 1] = {'\0'};
-    snprintf(max_uint_str_buff, sizeof(max_uint_str_buff), "%lu", UINT32_MAX);
+    snprintf(max_uint_str_buff, sizeof(max_uint_str_buff), "%" PRIu32, UINT32_MAX);
 
     suffixed_str_buff[0] = '\0';
     truncate_uint_to_suffixed_str(UINT32_MAX, UINT_MAX_DIGITS, suffixed_str_buff);

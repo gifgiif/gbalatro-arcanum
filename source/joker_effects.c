@@ -1,5 +1,4 @@
 #include "game.h"
-#include "game/round.h"
 #include "game_variables.h"
 #include "hand.h"
 #include "joker.h"
@@ -36,7 +35,7 @@
         return JOKER_EFFECT_FLAG_NONE;                       \
     }
 
-static JokerEffect s_shared_joker_effect = {0};
+static JokerEffect shared_joker_effect = {0};
 
 // Joker Descriptions
 
@@ -173,68 +172,68 @@ REGISTER_JOKER_EFFECT_FUNC(sock_and_buskin_joker_effect)
 const JokerInfo joker_registry[] = 
 {
     // Spritesheet 0
-    { "Joker",            COMMON_JOKER,    2, false, default_joker_desc,          default_joker_effect              }, // DEFAULT_JOKER_ID = 0
-    { "Abstract Joker",   COMMON_JOKER,    4, false, abstract_joker_desc,         abstract_joker_effect             }, // 1
-    { "Half Joker",       COMMON_JOKER,    5, false, half_joker_desc,             half_joker_effect                 }, // 2
-    { "Misprint",         COMMON_JOKER,    4, true,  misprint_joker_desc,         misprint_joker_effect             }, // 3
-    { "Scary Face",       COMMON_JOKER,    4, false, scary_face_joker_desc,       scary_face_joker_effect           }, // 4
-    { "Sock and Buskin",  UNCOMMON_JOKER,  6, false, sock_and_buskin_joker_desc,  sock_and_buskin_joker_effect      }, // 5
-    { "Acrobat",          UNCOMMON_JOKER,  6, false, acrobat_joker_desc,          acrobat_joker_effect              }, // 6
-    { "Fibonacci",        UNCOMMON_JOKER,  8, false, fibonnaci_joker_desc,        fibonnaci_joker_effect            }, // 7
-    { "Scholar",          COMMON_JOKER,    4, false, scholar_joker_desc,          scholar_joker_effect              }, // 8
-    { "Crafty Joker",     COMMON_JOKER,    4, false, crafty_joker_desc,           crafty_joker_effect               }, // 9
-    { "Droll Joker",      COMMON_JOKER,    4, false, droll_joker_desc,            droll_joker_effect                }, // 10
-    { "Raised Fist",      COMMON_JOKER,    5, false, raised_fist_joker_desc,      raised_fist_joker_effect          }, // 11
-    { "Reserved Parking", COMMON_JOKER,    6, false, reserved_parking_joker_desc, reserved_parking_joker_effect     }, // 12
-    { "Business Card",    COMMON_JOKER,    4, false, business_card_joker_desc,    business_card_joker_effect        }, // 13
-    { "Hanging Chad",     COMMON_JOKER,    4, false, hanging_chad_joker_desc,     hanging_chad_joker_effect         }, // 14
-    { "Joker Stencil",    UNCOMMON_JOKER,  8, false, stencil_joker_desc,          stencil_joker_effect              }, // 15
-    { "Banner",           COMMON_JOKER,    5, false, banner_joker_desc,           banner_joker_effect               }, // 16
-    { "Shoot the Moon",   COMMON_JOKER,    5, false, shoot_the_moon_joker_desc,   shoot_the_moon_joker_effect,      }, // 17
+    { "Joker",            COMMON_JOKER,    4, false, default_joker_desc,          default_joker_effect              }, // DEFAULT_JOKER_ID = 0
+    { "Abstract Joker",   COMMON_JOKER,    6, false, abstract_joker_desc,         abstract_joker_effect             }, // 1
+    { "Half Joker",       COMMON_JOKER,    6, false, half_joker_desc,             half_joker_effect                 }, // 2
+    { "Misprint",         COMMON_JOKER,    5, true,  misprint_joker_desc,         misprint_joker_effect             }, // 3
+    { "Scary Face",       COMMON_JOKER,    5, false, scary_face_joker_desc,       scary_face_joker_effect           }, // 4
+    { "Sock and Buskin",  UNCOMMON_JOKER,  8, false, sock_and_buskin_joker_desc,  sock_and_buskin_joker_effect      }, // 5
+    { "Acrobat",          UNCOMMON_JOKER,  7, false, acrobat_joker_desc,          acrobat_joker_effect              }, // 6
+    { "Fibonacci",        UNCOMMON_JOKER,  9, false, fibonnaci_joker_desc,        fibonnaci_joker_effect            }, // 7
+    { "Scholar",          COMMON_JOKER,    5, false, scholar_joker_desc,          scholar_joker_effect              }, // 8
+    { "Crafty Joker",     COMMON_JOKER,    5, false, crafty_joker_desc,           crafty_joker_effect               }, // 9
+    { "Droll Joker",      COMMON_JOKER,    5, false, droll_joker_desc,            droll_joker_effect                }, // 10
+    { "Raised Fist",      COMMON_JOKER,    6, false, raised_fist_joker_desc,      raised_fist_joker_effect          }, // 11
+    { "Reserved Parking", COMMON_JOKER,    7, false, reserved_parking_joker_desc, reserved_parking_joker_effect     }, // 12
+    { "Business Card",    COMMON_JOKER,    5, false, business_card_joker_desc,    business_card_joker_effect        }, // 13
+    { "Hanging Chad",     COMMON_JOKER,    6, false, hanging_chad_joker_desc,     hanging_chad_joker_effect         }, // 14
+    { "Joker Stencil",    UNCOMMON_JOKER,  9, false, stencil_joker_desc,          stencil_joker_effect              }, // 15
+    { "Banner",           COMMON_JOKER,    6, false, banner_joker_desc,           banner_joker_effect               }, // 16
+    { "Shoot the Moon",   COMMON_JOKER,    6, false, shoot_the_moon_joker_desc,   shoot_the_moon_joker_effect,      }, // 17
     // Spritesheet 1 
-    { "Greedy Joker",     COMMON_JOKER,    5, false, greedy_joker_desc,           greedy_joker_effect               }, // 18
-    { "Lusty Joker",      COMMON_JOKER,    5, false, lusty_joker_desc,            lusty_joker_effect                }, // 19
+    { "Greedy Joker",     COMMON_JOKER,    6, false, greedy_joker_desc,           greedy_joker_effect               }, // 18
+    { "Lusty Joker",      COMMON_JOKER,    6, false, lusty_joker_desc,            lusty_joker_effect                }, // 19
     // Spritesheet 2
-    { "Wrathful Joker",   COMMON_JOKER,    5, false, wrathful_joker_desc,         wrathful_joker_effect             }, // 20
-    { "Gluttonous Joker", COMMON_JOKER,    5, false, gluttonous_joker_desc,       gluttonous_joker_effect           }, // 21
+    { "Wrathful Joker",   COMMON_JOKER,    6, false, wrathful_joker_desc,         wrathful_joker_effect             }, // 20
+    { "Gluttonous Joker", COMMON_JOKER,    6, false, gluttonous_joker_desc,       gluttonous_joker_effect           }, // 21
     // Spritesheet 3
-    { "Crazy Joker",      COMMON_JOKER,    4, false, crazy_joker_desc,            crazy_joker_effect                }, // 22
-    { "Mad Joker",        COMMON_JOKER,    4, false, mad_joker_desc,              mad_joker_effect                  }, // 23
-    { "Clever Joker",     COMMON_JOKER,    4, false, clever_joker_desc,           clever_joker_effect               }, // 24
-    { "Devious Joker",    COMMON_JOKER,    4, false, devious_joker_desc,          devious_joker_effect              }, // 25
-    { "Even Steven",      COMMON_JOKER,    4, false, even_steven_joker_desc,      even_steven_joker_effect          }, // 26
+    { "Crazy Joker",      COMMON_JOKER,    5, false, crazy_joker_desc,            crazy_joker_effect                }, // 22
+    { "Mad Joker",        COMMON_JOKER,    5, false, mad_joker_desc,              mad_joker_effect                  }, // 23
+    { "Clever Joker",     COMMON_JOKER,    5, false, clever_joker_desc,           clever_joker_effect               }, // 24
+    { "Devious Joker",    COMMON_JOKER,    5, false, devious_joker_desc,          devious_joker_effect              }, // 25
+    { "Even Steven",      COMMON_JOKER,    5, false, even_steven_joker_desc,      even_steven_joker_effect          }, // 26
     // Spritesheet 4
-    { "Blackboard",       UNCOMMON_JOKER,  6, false, blackboard_joker_desc,       blackboard_joker_effect           }, // 27
-    { "Mystic Summit",    COMMON_JOKER,    5, false, mystic_summit_joker_desc,    mystic_summit_joker_effect        }, // 28
-    { "Walkie Talkie",    COMMON_JOKER,    4, false, walkie_talkie_joker_desc,    walkie_talkie_joker_effect        }, // 29
-    { "Zany Joker",       COMMON_JOKER,    4, false, zany_joker_desc,             zany_joker_effect                 }, // 30
-    { "Wily Joker",       COMMON_JOKER,    4, false, wily_joker_desc,             wily_joker_effect                 }, // 31
+    { "Blackboard",       UNCOMMON_JOKER,  8, false, blackboard_joker_desc,       blackboard_joker_effect           }, // 27
+    { "Mystic Summit",    COMMON_JOKER,    6, false, mystic_summit_joker_desc,    mystic_summit_joker_effect        }, // 28
+    { "Walkie Talkie",    COMMON_JOKER,    5, false, walkie_talkie_joker_desc,    walkie_talkie_joker_effect        }, // 29
+    { "Zany Joker",       COMMON_JOKER,    5, false, zany_joker_desc,             zany_joker_effect                 }, // 30
+    { "Wily Joker",       COMMON_JOKER,    5, false, wily_joker_desc,             wily_joker_effect                 }, // 31
     // Spritesheet 5
-    { "Sly Joker",        COMMON_JOKER,    3, false, sly_joker_desc,              sly_joker_effect                  }, // 32
-    { "Jolly Joker",      COMMON_JOKER,    3, false, jolly_joker_desc,            jolly_joker_effect                }, // 33
-    { "Blue Joker",       COMMON_JOKER,    5, false, blue_joker_desc,             blue_joker_effect                 }, // 34
-    { "Odd Todd",         COMMON_JOKER,    4, false, odd_todd_joker_desc,         odd_todd_joker_effect             }, // 35
+    { "Sly Joker",        COMMON_JOKER,    4, false, sly_joker_desc,              sly_joker_effect                  }, // 32
+    { "Jolly Joker",      COMMON_JOKER,    4, false, jolly_joker_desc,            jolly_joker_effect                }, // 33
+    { "Blue Joker",       COMMON_JOKER,    7, false, blue_joker_desc,             blue_joker_effect                 }, // 34
+    { "Odd Todd",         COMMON_JOKER,    5, false, odd_todd_joker_desc,         odd_todd_joker_effect             }, // 35
     // Spritesheet 6
-    { "The Duo",          RARE_JOKER,      8, false, the_duo_joker_desc,          the_duo_joker_effect              }, // 36
-    { "The Trio",         RARE_JOKER,      8, false, the_trio_joker_desc,         the_trio_joker_effect             }, // 37
-    { "The Order",        RARE_JOKER,      8, false, the_order_joker_desc,        the_order_joker_effect            }, // 38
-    { "The Tribe",        RARE_JOKER,      8, false, the_tribe_joker_desc,        the_tribe_joker_effect            }, // 39
+    { "The Duo",          RARE_JOKER,     10, false, the_duo_joker_desc,          the_duo_joker_effect              }, // 36
+    { "The Trio",         RARE_JOKER,     10, false, the_trio_joker_desc,         the_trio_joker_effect             }, // 37
+    { "The Order",        RARE_JOKER,     10, false, the_order_joker_desc,        the_order_joker_effect            }, // 38
+    { "The Tribe",        RARE_JOKER,     10, false, the_tribe_joker_desc,        the_tribe_joker_effect            }, // 39
     // Spritesheet 7
-    { "The Family",       RARE_JOKER,      8, false, the_family_joker_desc,       the_family_joker_effect           }, // 40
-    { "Brainstorm",       RARE_JOKER,     10, false, brainstorm_joker_desc,       blueprint_brainstorm_joker_effect }, // 41 Brainstorm
+    { "The Family",       RARE_JOKER,     10, false, the_family_joker_desc,       the_family_joker_effect           }, // 40
+    { "Brainstorm",       RARE_JOKER,     12, false, brainstorm_joker_desc,       blueprint_brainstorm_joker_effect }, // 41 Brainstorm
     // Spritesheet 8
-    { "Smiley Face",      COMMON_JOKER,    4, false, smiley_face_joker_desc,      smiley_face_joker_effect          }, // 42
-    { "Bull",             UNCOMMON_JOKER,  6, false, bull_joker_desc,             bull_joker_effect                 }, // 43
+    { "Smiley Face",      COMMON_JOKER,    5, false, smiley_face_joker_desc,      smiley_face_joker_effect          }, // 42
+    { "Bull",             UNCOMMON_JOKER,  7, false, bull_joker_desc,             bull_joker_effect                 }, // 43
     // Individual Jokers (for now :3)
-    { "Photograph",       COMMON_JOKER,    5, false, photograph_joker_desc,       photograph_joker_effect,          }, // 44
-    { "Hack",             UNCOMMON_JOKER,  6, false, hack_joker_desc,             hack_joker_effect                 }, // 45
-    { "Pareidolia",       UNCOMMON_JOKER,  5, false, pareidolia_joker_desc,       joker_effect_noop                 }, // 46 Pareidolia
-    { "Bootstraps",       UNCOMMON_JOKER,  7, false, bootstraps_joker_desc,       bootstraps_joker_effect           }, // 47
-    { "Shortcut",         UNCOMMON_JOKER,  7, false, shortcut_joker_desc,         joker_effect_noop,                }, // 48 Shortcut
-    { "Dusk",             UNCOMMON_JOKER,  5, false, dusk_joker_desc,             dusk_joker_effect                 }, // 49
-    { "Four Fingers",     UNCOMMON_JOKER,  7, false, four_fingers_joker_desc,     joker_effect_noop,                }, // 50 Four Fingers
-    { "Seltzer",          UNCOMMON_JOKER,  6, false, seltzer_joker_desc,          seltzer_joker_effect,             }, // 51
-    { "Blueprint",        RARE_JOKER,     10, false, blueprint_joker_desc,        blueprint_brainstorm_joker_effect }, // 52 Blueprint
+    { "Photograph",       COMMON_JOKER,    6, false, photograph_joker_desc,       photograph_joker_effect,          }, // 44
+    { "Hack",             UNCOMMON_JOKER,  8, false, hack_joker_desc,             hack_joker_effect                 }, // 45
+    { "Pareidolia",       UNCOMMON_JOKER,  7, false, pareidolia_joker_desc,       joker_effect_noop                 }, // 46 Pareidolia
+    { "Bootstraps",       UNCOMMON_JOKER,  8, false, bootstraps_joker_desc,       bootstraps_joker_effect           }, // 47
+    { "Shortcut",         UNCOMMON_JOKER,  8, false, shortcut_joker_desc,         joker_effect_noop,                }, // 48 Shortcut
+    { "Dusk",             UNCOMMON_JOKER,  8, false, dusk_joker_desc,             dusk_joker_effect                 }, // 49
+    { "Four Fingers",     UNCOMMON_JOKER,  8, false, four_fingers_joker_desc,     joker_effect_noop,                }, // 50 Four Fingers
+    { "Seltzer",          UNCOMMON_JOKER,  7, false, seltzer_joker_desc,          seltzer_joker_effect,             }, // 51
+    { "Blueprint",        RARE_JOKER,     12, false, blueprint_joker_desc,        blueprint_brainstorm_joker_effect }, // 52 Blueprint
 
     // The following jokers don't have sprites yet,
     // uncomment them when their sprites are added.
@@ -386,7 +385,7 @@ static int stencil_joker_desc(Joker* joker, Rect dest_rect)
     const u32 desc_max_size = 130;
 
     List* jokers = get_jokers_list();
-    u32 stencil_bonus = MAX_JOKERS_HELD_SIZE - list_get_len(jokers);
+    u32 stencil_bonus = game_get_joker_capacity() - list_get_len(jokers);
 
     ListItr itr = list_itr_create(jokers);
     JokerObject* joker_object;
@@ -529,7 +528,8 @@ static int bull_joker_desc(Joker* joker, Rect dest_rect)
                      " you have\n\n(Now " TTE_BLUE_TAG "+%ld" TTE_BLACK_TAG " Chips)";
     const u32 desc_max_size = 127;
 
-    u32 bull_bonus = (g_game_vars.money > 0) ? g_game_vars.money * 2 : 0;
+    u32 bull_bonus =
+        g_game_vars.money > 0 ? u32_protected_mult((u32)g_game_vars.money, 2) : 0;
 
     char desc[desc_max_size];
     snprintf(desc, desc_max_size, desc_format, bull_bonus);
@@ -736,7 +736,7 @@ static u32 default_joker_effect(
 )
 {
     SCORE_ON_EVENT_ONLY(JOKER_EVENT_INDEPENDENT, joker_event)
-    *joker_effect = &s_shared_joker_effect;
+    *joker_effect = &shared_joker_effect;
 
     (*joker_effect)->mult = 4;
 
@@ -754,9 +754,9 @@ static u32 sinful_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (scored_card->suit == sinful_suit)
+    if (card_matches_suit(scored_card, sinful_suit))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 3;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -817,7 +817,7 @@ static u32 jolly_joker_effect(
 
     if (get_contained_hands()->PAIR)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 8;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -839,7 +839,7 @@ static u32 zany_joker_effect(
 
     if (get_contained_hands()->THREE_OF_A_KIND)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 12;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -861,7 +861,7 @@ static u32 mad_joker_effect(
 
     if (get_contained_hands()->TWO_PAIR)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 10;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -883,7 +883,7 @@ static u32 crazy_joker_effect(
 
     if (get_contained_hands()->STRAIGHT)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 12;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -905,7 +905,7 @@ static u32 droll_joker_effect(
 
     if (get_contained_hands()->FLUSH)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 10;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -927,7 +927,7 @@ static u32 sly_joker_effect(
 
     if (get_contained_hands()->PAIR)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 50;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -949,7 +949,7 @@ static u32 wily_joker_effect(
 
     if (get_contained_hands()->THREE_OF_A_KIND)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 100;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -971,7 +971,7 @@ static u32 clever_joker_effect(
 
     if (get_contained_hands()->TWO_PAIR)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 80;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -993,7 +993,7 @@ static u32 devious_joker_effect(
 
     if (get_contained_hands()->STRAIGHT)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 100;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -1015,7 +1015,7 @@ static u32 crafty_joker_effect(
 
     if (get_contained_hands()->FLUSH)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 80;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -1035,10 +1035,10 @@ static u32 half_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    int played_size = get_played_size();
+    int played_size = get_played_top() + 1;
     if (played_size <= 3)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 20;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1056,14 +1056,14 @@ static u32 stencil_joker_effect(
 {
     SCORE_ON_EVENT_ONLY(JOKER_EVENT_INDEPENDENT, joker_event)
 
-    *joker_effect = &s_shared_joker_effect;
+    *joker_effect = &shared_joker_effect;
 
     List* jokers = get_jokers_list();
 
     // +1 xmult per empty joker slot...
     int num_jokers = list_get_len(jokers);
 
-    (*joker_effect)->xmult = (MAX_JOKERS_HELD_SIZE)-num_jokers;
+    (*joker_effect)->xmult = game_get_joker_capacity() - num_jokers;
 
     // ...and also each stencil_joker adds +1 xmult
     ListItr itr = list_itr_create(jokers);
@@ -1088,9 +1088,9 @@ static u32 misprint_joker_effect(
 {
     SCORE_ON_EVENT_ONLY(JOKER_EVENT_INDEPENDENT, joker_event)
 
-    *joker_effect = &s_shared_joker_effect;
+    *joker_effect = &shared_joker_effect;
 
-    (*joker_effect)->mult = rng_get_u32(RNG_SEQ_JOKER_MISPRINT) % (MISPRINT_MAX_MULT + 1);
+    (*joker_effect)->mult = rng_get_u32() % (MISPRINT_MAX_MULT + 1);
 
     return JOKER_EFFECT_FLAG_MULT;
 }
@@ -1106,9 +1106,10 @@ static u32 walkie_talkie_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (scored_card->rank == TEN || scored_card->rank == FOUR)
+    if (card_has_rank(scored_card) &&
+        (scored_card->rank == TEN || scored_card->rank == FOUR))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 10;
         (*joker_effect)->mult = 4;
@@ -1129,6 +1130,8 @@ static u32 fibonnaci_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
+    if (!card_has_rank(scored_card))
+        return effect_flags_ret;
     switch (scored_card->rank)
     {
         case ACE:
@@ -1136,7 +1139,7 @@ static u32 fibonnaci_joker_effect(
         case THREE:
         case FIVE:
         case EIGHT:
-            *joker_effect = &s_shared_joker_effect;
+            *joker_effect = &shared_joker_effect;
             (*joker_effect)->mult = 8;
             effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
             break;
@@ -1160,7 +1163,7 @@ static u32 banner_joker_effect(
 
     if (get_num_discards_remaining() > 0)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 30 * get_num_discards_remaining();
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -1182,7 +1185,7 @@ static u32 mystic_summit_joker_effect(
 
     if (get_num_discards_remaining() == 0)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 15;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1204,10 +1207,12 @@ static u32 blackboard_joker_effect(
 
     bool all_cards_are_spades_or_clubs = true;
     CardObject** hand = get_hand_array();
-    for (int i = 0; i < g_game_vars.hand_size; i++)
+    for (int i = 0; i <= get_hand_top(); i++)
     {
-        u8 suit = hand[i]->card->suit;
-        if (suit == HEARTS || suit == DIAMONDS)
+        if (hand[i] == NULL || hand[i]->card == NULL)
+            continue;
+        if (card_matches_suit(hand[i]->card, HEARTS) ||
+            card_matches_suit(hand[i]->card, DIAMONDS))
         {
             all_cards_are_spades_or_clubs = false;
             break;
@@ -1216,7 +1221,7 @@ static u32 blackboard_joker_effect(
 
     if (all_cards_are_spades_or_clubs)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 3;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1234,7 +1239,7 @@ static u32 blue_joker_effect(
 {
     SCORE_ON_EVENT_ONLY(JOKER_EVENT_INDEPENDENT, joker_event)
 
-    *joker_effect = &s_shared_joker_effect;
+    *joker_effect = &shared_joker_effect;
 
     (*joker_effect)->chips = (get_deck_top() + 1) * 2;
 
@@ -1257,13 +1262,18 @@ static u32 raised_fist_joker_effect(
         // Use this event to compute the index of the lowest value card only once.
         // Aces are always considered high value, even in an ace-low straight
         case JOKER_EVENT_ON_HAND_PLAYED:
-            // index initialized at 0 but accessed only if
-            // hand_size > 0 so we're never out of bounds
-            *p_lowest_value_index = 0;
+            /*
+             * The number of cards actually held can be lower than the logical
+             * hand size after deck exhaustion, Acid, or Serpent. Iterating to
+             * g_game_vars.hand_size dereferenced empty hand slots.
+             */
+            *p_lowest_value_index = UNDEFINED;
             u8 lowest_value = IMPOSSIBLY_HIGH_CARD_VALUE;
             CardObject** hand = get_hand_array();
-            for (int i = 0; i < g_game_vars.hand_size; i++)
+            for (int i = 0; i <= get_hand_top(); i++)
             {
+                if (hand[i] == NULL || hand[i]->card == NULL)
+                    continue;
                 u8 value = card_get_value(hand[i]->card);
                 if (lowest_value > value)
                 {
@@ -1274,9 +1284,10 @@ static u32 raised_fist_joker_effect(
             break;
 
         case JOKER_EVENT_ON_CARD_HELD:
-            if (get_scored_card_index() == *p_lowest_value_index)
+            if (scored_card != NULL && *p_lowest_value_index != UNDEFINED &&
+                get_scored_card_index() == *p_lowest_value_index)
             {
-                *joker_effect = &s_shared_joker_effect;
+                *joker_effect = &shared_joker_effect;
 
                 (*joker_effect)->mult = 2 * card_get_value(scored_card);
                 effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1297,13 +1308,17 @@ static u32 reserved_parking_joker_effect(
     JokerEffect** joker_effect
 )
 {
-    SCORE_ON_EVENT_ONLY(JOKER_EVENT_ON_CARD_HELD, joker_event)
+    SCORE_ON_EVENT_ONLY_WITH_CARD(
+        scored_card,
+        JOKER_EVENT_ON_CARD_HELD,
+        joker_event
+    )
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (card_is_face(scored_card) && (rng_get_u32(RNG_SEQ_JOKER_RESERVED_PARKING) % 2 == 0))
+    if ((rng_get_u32() % 2 == 0) && card_is_face(scored_card))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->money = 1;
         effect_flags_ret = JOKER_EFFECT_FLAG_MONEY;
@@ -1323,9 +1338,9 @@ static u32 business_card_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (card_is_face(scored_card) && (rng_get_u32(RNG_SEQ_JOKER_BUSINESS_CARD) % 2 == 0))
+    if ((rng_get_u32() % 2 == 0) && card_is_face(scored_card))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->money = 2;
         effect_flags_ret = JOKER_EFFECT_FLAG_MONEY;
@@ -1345,9 +1360,9 @@ static u32 scholar_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (scored_card->rank == ACE)
+    if (card_has_rank(scored_card) && scored_card->rank == ACE)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 20;
         (*joker_effect)->mult = 4;
@@ -1370,7 +1385,7 @@ static u32 scary_face_joker_effect(
 
     if (card_is_face(scored_card))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 30;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -1388,7 +1403,7 @@ static u32 abstract_joker_effect(
 {
     SCORE_ON_EVENT_ONLY(JOKER_EVENT_INDEPENDENT, joker_event)
 
-    *joker_effect = &s_shared_joker_effect;
+    *joker_effect = &shared_joker_effect;
 
     // +1 xmult per occupied joker slot
     int num_jokers = list_get_len(get_jokers_list());
@@ -1413,9 +1428,10 @@ static u32 bull_joker_effect(
     // This allows us to avoid scoring negative Chips
     if (g_game_vars.money > 0)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
-        (*joker_effect)->chips = g_game_vars.money * 2;
+        (*joker_effect)->chips =
+            u32_protected_mult((u32)g_game_vars.money, 2);
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
     }
 
@@ -1435,7 +1451,7 @@ static u32 smiley_face_joker_effect(
 
     if (card_is_face(scored_card))
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 5;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1455,6 +1471,8 @@ static u32 even_steven_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
+    if (!card_has_rank(scored_card))
+        return effect_flags_ret;
     switch (scored_card->rank)
     {
         case KING:
@@ -1464,7 +1482,7 @@ static u32 even_steven_joker_effect(
         default:
             if (card_get_value(scored_card) % 2 == 0)
             {
-                *joker_effect = &s_shared_joker_effect;
+                *joker_effect = &shared_joker_effect;
 
                 (*joker_effect)->mult = 4;
                 effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1486,9 +1504,10 @@ static u32 odd_todd_joker_effect(
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (card_get_value(scored_card) % 2 == 1) // todo test ace
+    if (card_has_rank(scored_card) &&
+        card_get_value(scored_card) % 2 == 1) // todo test ace
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->chips = 31;
         effect_flags_ret = JOKER_EFFECT_FLAG_CHIPS;
@@ -1511,7 +1530,7 @@ static u32 acrobat_joker_effect(
     // 0 remaining hands mean we're scoring the last hand
     if (get_num_hands_remaining() == 0)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 3;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1540,7 +1559,7 @@ static u32 hanging_chad_joker_effect(
         // p_remaining_retriggers will always reach 0 on the first card, then retrigger
         // will be false and scoring will go onto the next card
         case JOKER_EVENT_ON_CARD_SCORED_END:
-            *joker_effect = &s_shared_joker_effect;
+            *joker_effect = &shared_joker_effect;
 
             (*joker_effect)->retrigger = (*p_remaining_retriggers > 0);
             if ((*joker_effect)->retrigger)
@@ -1571,7 +1590,7 @@ static u32 the_duo_joker_effect(
 
     if (get_contained_hands()->PAIR)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 2;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1593,7 +1612,7 @@ static u32 the_trio_joker_effect(
 
     if (get_contained_hands()->THREE_OF_A_KIND)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 3;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1615,7 +1634,7 @@ static u32 the_family_joker_effect(
 
     if (get_contained_hands()->FOUR_OF_A_KIND)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 4;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1637,7 +1656,7 @@ static u32 the_order_joker_effect(
 
     if (get_contained_hands()->STRAIGHT)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 3;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1659,7 +1678,7 @@ static u32 the_tribe_joker_effect(
 
     if (get_contained_hands()->FLUSH)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->xmult = 2;
         effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1682,7 +1701,7 @@ static u32 bootstraps_joker_effect(
     // Same protection as the Bull Joker
     if (g_game_vars.money > 0)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = (g_game_vars.money / 5) * 2;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1698,13 +1717,17 @@ static u32 shoot_the_moon_joker_effect(
     JokerEffect** joker_effect
 )
 {
-    SCORE_ON_EVENT_ONLY(JOKER_EVENT_ON_CARD_HELD, joker_event)
+    SCORE_ON_EVENT_ONLY_WITH_CARD(
+        scored_card,
+        JOKER_EVENT_ON_CARD_HELD,
+        joker_event
+    )
 
     u32 effect_flags_ret = JOKER_EFFECT_FLAG_NONE;
 
-    if (scored_card->rank == QUEEN)
+    if (card_has_rank(scored_card) && scored_card->rank == QUEEN)
     {
-        *joker_effect = &s_shared_joker_effect;
+        *joker_effect = &shared_joker_effect;
 
         (*joker_effect)->mult = 13;
         effect_flags_ret = JOKER_EFFECT_FLAG_MULT;
@@ -1742,7 +1765,7 @@ static u32 photograph_joker_effect(
             // and we will catch potential retriggers
             if (*p_first_face_index == get_scored_card_index())
             {
-                *joker_effect = &s_shared_joker_effect;
+                *joker_effect = &shared_joker_effect;
 
                 (*joker_effect)->xmult = 2;
                 effect_flags_ret = JOKER_EFFECT_FLAG_XMULT;
@@ -1777,7 +1800,7 @@ static u32 dusk_joker_effect(
             // Only retrigger current card if it's strictly after the last one we retriggered
             if (get_num_hands_remaining() == 0)
             {
-                *joker_effect = &s_shared_joker_effect;
+                *joker_effect = &shared_joker_effect;
 
                 (*joker_effect)->retrigger = (*p_last_retriggered_index < get_scored_card_index());
                 if ((*joker_effect)->retrigger)
@@ -1839,6 +1862,15 @@ static u32 blueprint_brainstorm_joker_effect(
     u8 brainstorm_counter = 0;
     do
     {
+        /*
+         * A disabled Joker must not remain active indirectly through a copy
+         * chain. Check every hop, including Blueprint/Brainstorm targets.
+         */
+        if (copied_joker_object->joker == NULL ||
+            game_is_joker_disabled(copied_joker_object))
+        {
+            break;
+        }
         switch (copied_joker_object->joker->id)
         {
             // get the next Joker for Blueprint
@@ -1859,6 +1891,12 @@ static u32 blueprint_brainstorm_joker_effect(
             default:
                 u8 copied_joker_id = copied_joker_object->joker->id;
                 const JokerInfo* copied_joker_info = get_joker_registry_entry(copied_joker_id);
+                if (copied_joker_info == NULL ||
+                    copied_joker_info->joker_effect_func == NULL)
+                {
+                    copied_joker_object = NULL;
+                    break;
+                }
 
                 // Copy the persistent data
                 joker->persistent_state = copied_joker_object->joker->persistent_state;
@@ -1901,13 +1939,15 @@ static u32 hack_joker_effect(
 
         case JOKER_EVENT_ON_CARD_SCORED_END:
             // Works the same way as Dusk, but check what rank the card is
+            if (!card_has_rank(scored_card))
+                break;
             switch (scored_card->rank)
             {
                 case TWO:
                 case THREE:
                 case FOUR:
                 case FIVE:
-                    *joker_effect = &s_shared_joker_effect;
+                    *joker_effect = &shared_joker_effect;
 
                     (*joker_effect)->retrigger =
                         (*p_last_retriggered_index < get_scored_card_index());
@@ -1954,7 +1994,7 @@ static u32 seltzer_joker_effect(
             // Works the same way as Dusk
             // No need to check for p_hands_left_until_exp because the Joker
             // will be destroyed the moment we hit 0
-            *joker_effect = &s_shared_joker_effect;
+            *joker_effect = &shared_joker_effect;
 
             (*joker_effect)->retrigger = ((*p_last_retriggered_idx) < get_scored_card_index());
             if ((*joker_effect)->retrigger)
@@ -1966,7 +2006,7 @@ static u32 seltzer_joker_effect(
             break;
 
         case JOKER_EVENT_ON_HAND_SCORED_END:
-            *joker_effect = &s_shared_joker_effect;
+            *joker_effect = &shared_joker_effect;
             effect_flags_ret = JOKER_EFFECT_FLAG_MESSAGE;
 
             (*p_hands_left_until_exp)--;
@@ -1974,9 +2014,9 @@ static u32 seltzer_joker_effect(
             {
                 // Need to do this for now because the message's memory can't really be allocated
                 // So we can't use snprintf to craft a message depending on the number of hands left
-                static const char* SELTZER_MESSAGES[] =
+                static const char* seltzer_messages[] =
                     {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
-                (*joker_effect)->message = (char*)SELTZER_MESSAGES[(*p_hands_left_until_exp) - 1];
+                (*joker_effect)->message = (char*)seltzer_messages[(*p_hands_left_until_exp) - 1];
             }
             else
             {
@@ -2011,7 +2051,7 @@ static u32 sock_and_buskin_joker_effect(
             break;
 
         case JOKER_EVENT_ON_CARD_SCORED_END:
-            *joker_effect = &s_shared_joker_effect;
+            *joker_effect = &shared_joker_effect;
 
             // Works the same way as Dusk, but for face cards
             (*joker_effect)->retrigger =

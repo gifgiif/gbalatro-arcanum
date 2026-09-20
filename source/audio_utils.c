@@ -59,6 +59,9 @@ static StateInfo state_info[] = {
 
 static StateMachine song_speed_sm = STATE_MACHINE_DEFINE(state_info, 1);
 
+static mm_sfxhand ui_sfx_handle = 0;
+static bool ui_sfx_handle_valid = false;
+
 static void set_audio_param_req(AudioParam* param, s32 target, s32 steps)
 {
     int offset = target - param->current;
@@ -100,9 +103,12 @@ static void speed_change_update(void)
         state_machine_remove(&song_speed_sm);
 }
 
-void play_sfx(mm_word id, mm_word rate, mm_byte volume)
+static mm_sfxhand start_sfx(mm_word id, mm_word rate, mm_byte volume)
 {
     int adj_volume = volume * g_game_vars.sound_volume / VOLUME_OPTION_MAX;
+    if (adj_volume <= 0)
+        return 0;
+
     mm_sound_effect sfx = {
         {id},
         rate,
@@ -110,7 +116,21 @@ void play_sfx(mm_word id, mm_word rate, mm_byte volume)
         adj_volume,
         SFX_DEFAULT_PAN,
     };
-    mmEffectEx(&sfx);
+    return mmEffectEx(&sfx);
+}
+
+void play_sfx(mm_word id, mm_word rate, mm_byte volume)
+{
+    (void)start_sfx(id, rate, volume);
+}
+
+void play_ui_sfx(mm_word id, mm_word rate, mm_byte volume)
+{
+    if (ui_sfx_handle_valid && mmEffectActive(ui_sfx_handle))
+        mmEffectCancel(ui_sfx_handle);
+
+    ui_sfx_handle = start_sfx(id, rate, volume);
+    ui_sfx_handle_valid = g_game_vars.sound_volume > 0;
 }
 
 void play_lose_music(void)

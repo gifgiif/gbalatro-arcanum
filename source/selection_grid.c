@@ -23,7 +23,8 @@ static void selection_grid_process_directional_input(SelectionGrid* selection_gr
 
 void selection_grid_move_selection_horz(SelectionGrid* selection_grid, int direction_tribool)
 {
-    if (selection_grid == NULL || selection_grid->selection.y < 0 ||
+    if (selection_grid == NULL || selection_grid->rows == NULL ||
+        selection_grid->selection.y < 0 ||
         selection_grid->selection.y >= selection_grid->num_rows)
     {
         return;
@@ -37,9 +38,20 @@ void selection_grid_move_selection_horz(SelectionGrid* selection_grid, int direc
             ? (Selection){selection_grid->selection.x, current_row.attributes.h_exit_idx}
             : selection_grid->selection;
 
+    if (new_selection.y < 0 || new_selection.y >= selection_grid->num_rows ||
+        selection_grid->rows[new_selection.y].get_size == NULL)
+    {
+        return;
+    }
+
     new_selection.x += direction_tribool;
     int row_size = selection_grid->rows[new_selection.y].get_size();
     bool wrap_enabled = selection_grid->rows[new_selection.y].attributes.wrap;
+
+    /* A row may become empty after a game action (for example Acid removing
+     * the final card in hand). Never manufacture a selection for an empty row. */
+    if (row_size <= 0)
+        return;
 
     if (wrap_enabled)
     {
@@ -48,8 +60,11 @@ void selection_grid_move_selection_horz(SelectionGrid* selection_grid, int direc
 
     if (wrap_enabled || (new_selection.x >= 0 && new_selection.x < row_size))
     {
+        RowOnSelectionChangedFunc on_selection_changed =
+            selection_grid->rows[selection_grid->selection.y].on_selection_changed;
         bool proceed_selection =
-            selection_grid->rows[selection_grid->selection.y].on_selection_changed(
+            on_selection_changed == NULL ||
+            on_selection_changed(
                 selection_grid,
                 current_row.row_idx,
                 &selection_grid->selection,
@@ -65,20 +80,34 @@ void selection_grid_move_selection_horz(SelectionGrid* selection_grid, int direc
 
 void selection_grid_move_selection_vert(SelectionGrid* selection_grid, int direction_tribool)
 {
-    if (selection_grid == NULL)
+    if (selection_grid == NULL || selection_grid->rows == NULL ||
+        selection_grid->selection.y < 0 ||
+        selection_grid->selection.y >= selection_grid->num_rows || direction_tribool == 0)
         return;
 
     Selection selection = selection_grid->selection;
     Selection new_selection = selection;
-    new_selection.y += direction_tribool;
+    do
+    {
+        new_selection.y += direction_tribool;
+    } while (
+        new_selection.y >= 0 && new_selection.y < selection_grid->num_rows &&
+        selection_grid->rows[new_selection.y].get_size != NULL &&
+        selection_grid->rows[new_selection.y].get_size() <= 0
+    );
 
     if (new_selection.y >= 0 && new_selection.y < selection_grid->num_rows)
     {
+        if (selection_grid->rows[new_selection.y].get_size == NULL)
+            return;
+
         int new_row_size = selection_grid->rows[new_selection.y].get_size();
         if (new_row_size <= 0)
             return;
 
-        int old_row_size = selection_grid->rows[selection.y].get_size();
+        int old_row_size = selection_grid->rows[selection.y].get_size == NULL
+                               ? 0
+                               : selection_grid->rows[selection.y].get_size();
 
         // Branchless set to 1 if 0 to avoid division by 0
         old_row_size += (old_row_size == 0);
@@ -86,19 +115,23 @@ void selection_grid_move_selection_vert(SelectionGrid* selection_grid, int direc
         // Maintain relative horizontal position
         // The operations are equivalent to fixed point if all the numbers were converted
         new_selection.x = fx2int(selection.x * ((int2fx(new_row_size) / old_row_size)));
+        new_selection.x = clamp(new_selection.x, 0, new_row_size - 1);
 
         bool proceed_selection = true;
 
-        if (selection.y >= 0 && selection.y < selection_grid->num_rows)
+        RowOnSelectionChangedFunc old_callback =
+            selection_grid->rows[selection.y].on_selection_changed;
+        if (old_callback != NULL)
         {
             proceed_selection =
-                selection_grid->rows[selection.y]
-                    .on_selection_changed(selection_grid, selection.y, &selection, &new_selection);
+                old_callback(selection_grid, selection.y, &selection, &new_selection);
         }
 
-        if (proceed_selection)
+        RowOnSelectionChangedFunc new_callback =
+            selection_grid->rows[new_selection.y].on_selection_changed;
+        if (proceed_selection && new_callback != NULL)
         {
-            proceed_selection = selection_grid->rows[new_selection.y].on_selection_changed(
+            proceed_selection = new_callback(
                 selection_grid,
                 new_selection.y,
                 &selection,
@@ -115,7 +148,9 @@ void selection_grid_move_selection_vert(SelectionGrid* selection_grid, int direc
 
 void selection_grid_process_input(SelectionGrid* selection_grid)
 {
-    if (selection_grid == NULL || selection_grid->rows == NULL)
+    if (selection_grid == NULL || selection_grid->rows == NULL ||
+        selection_grid->selection.y < 0 ||
+        selection_grid->selection.y >= selection_grid->num_rows)
         return;
 
     selection_grid_process_directional_input(selection_grid);
@@ -125,7 +160,8 @@ void selection_grid_process_input(SelectionGrid* selection_grid)
     {
         // To make the next line shorter and more readable
         Selection* selection = &selection_grid->selection;
-        if (selection_grid->rows[selection->y].on_key_transit != NULL)
+        if (selection->y >= 0 && selection->y < selection_grid->num_rows &&
+            selection_grid->rows[selection->y].on_key_transit != NULL)
         {
             selection_grid->rows[selection->y].on_key_transit(selection_grid, selection);
         }

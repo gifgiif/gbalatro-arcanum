@@ -6,11 +6,8 @@
 #include <stdlib.h>
 #include <tonc.h>
 
-static void s_init_rng_states(void);
-static void s_xorshift32(u32* state);
-
 // Accumulate timer 1 into a bigger variable so we can generate more diverse seeds
-static u32 s_timer_acc = 0;
+static u32 timer_acc = 0;
 
 // Timers usage docs: https://gbadev.net/tonc/timers.html
 void rng_init(void)
@@ -21,60 +18,38 @@ void rng_init(void)
 
 void rng_update(void)
 {
-    s_timer_acc += (u32)REG_TM1D;
-}
-
-void rng_shuffle_seed(void)
-{
-    srand(s_timer_acc);
-    rng_set_seed(rand());
+    timer_acc += (u32)REG_TM1D;
 }
 
 void rng_set_seed(u32 seed)
 {
-    // We store the seed to display it at the end of the run, but here it's only used to generate
-    // the independent rng sequences' initial states. We also avoid the seed 0 as the Xorshift32
-    // method used will stay stuck.
-    u32 capped_seed = seed % (MAX_BASE36 + 1);
-    g_game_vars.rng_info.seed = (capped_seed == 0) ? MAX_BASE36 : capped_seed;
-    s_init_rng_states();
-}
-
-/**
- * @brief Reset all independent RNG sequences to their initial states using the
- *         global custom seed.
- */
-static inline void s_init_rng_states(void)
-{
+    g_game_vars.rng_info.seed = seed % (MAX_BASE36 + 1);
+    g_game_vars.rng_info.step = 0;
     srand(g_game_vars.rng_info.seed);
-    for (enum RngSequence key = 0; key < RNG_SEQ_MAX; key++)
-    {
-        g_game_vars.rng_info.states[key] = rand();
-    }
 }
 
-u32 rng_get_u32(enum RngSequence key)
+void rng_shuffle_seed(void)
 {
-    s_xorshift32(&g_game_vars.rng_info.states[key]);
-    return g_game_vars.rng_info.states[key];
+    rng_set_seed(timer_acc);
 }
 
-/**
- * @brief Transforms a given RNG state according to the Xorshift32 algorithm.
- *
- * Custom RNG had to be implemented to be able to manage several independent sequences, since
- * `initstate` and `setstate` are POSIX and not available on GBA via devkitpro.
- *
- * @param state pointer to a 32-bit RNG state
- */
-static inline void s_xorshift32(u32* state)
+u32 rng_get_u32(void)
 {
-    *(state) ^= *(state) << 13;
-    *(state) ^= *(state) >> 17;
-    *(state) ^= *(state) << 5;
+    g_game_vars.rng_info.step++;
+    return rand();
 }
 
 void rng_restore(RngInfo info)
 {
-    g_game_vars.rng_info = info;
+    u32 target_step = min(info.step, RNG_MAX_RESTORE_STEPS);
+    rng_set_seed(info.seed);
+
+    /*
+     * Keep the loop bound immutable. The old loop compared against
+     * g_game_vars.rng_info.step while rng_get_u32() incremented that same
+     * field, so every non-zero saved step could make Resume loop indefinitely.
+     */
+    for (u32 i = 0; i < target_step; i++)
+        (void)rand();
+    g_game_vars.rng_info.step = target_step;
 }

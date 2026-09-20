@@ -6,9 +6,10 @@
 #ifndef GAME_VARIABLES_H
 #define GAME_VARIABLES_H
 
+#include "alchemy.h"
 #include "blind.h"
-#include "hand.h"
 #include "random.h"
+#include "voucher.h"
 
 #include <tonc.h>
 
@@ -50,9 +51,6 @@ typedef struct
     s32 hand_size;
     s32 deck;
 
-    u32 best_hand_score;
-    u32 nb_played_hands[HAND_TYPE_MAX];
-
     // Blind variables
 
     enum BlindType current_blind;
@@ -62,11 +60,15 @@ typedef struct
     s32 hands;
     s32 discards;
     u32 score;
-    u32 chips;
-    u32 mult;
 
     Sprite* playing_blind_token;
     Sprite* round_end_blind_token;
+
+    // Run-persistent consumables
+    AlchemicalInventory alchemy;
+    VoucherState vouchers;
+    u16 hand_play_counts[ALCHEMICAL_HAND_TYPE_COUNT];
+
     // Options variables
 
     // BY DEFAULT IS SET TO 1, but if changed to 2 or more, should speed up all (or most) of the

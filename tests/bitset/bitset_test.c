@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 BITSET_DEFINE(test_bitset, BITSET_MAX_BITS)
+BITSET_DEFINE(partial_bitset, 35)
 
 // bitset_set_idx
 // bitset_get_idx
@@ -105,6 +106,28 @@ void test_bitset_iterator(void)
     assert(bitset_is_empty(&test_bitset));
 }
 
+void test_partial_word_and_invalid_indices(void)
+{
+    bitset_clear(&partial_bitset);
+    assert(bitset_set_next_free_idx(&partial_bitset) == 0);
+    for (int i = 1; i < 35; i++)
+        assert(bitset_set_next_free_idx(&partial_bitset) == i);
+    assert(bitset_num_set_bits(&partial_bitset) == 35);
+    assert(bitset_set_next_free_idx(&partial_bitset) == UNDEFINED);
+    assert(bitset_num_set_bits(&partial_bitset) == 35);
+
+    bitset_set_idx(&partial_bitset, -1, false);
+    bitset_set_idx(&partial_bitset, 35, false);
+    assert(!bitset_get_idx(&partial_bitset, -1));
+    assert(!bitset_get_idx(&partial_bitset, 35));
+
+    BitsetItr itr = bitset_itr_create(&partial_bitset);
+    int count = 0;
+    while (bitset_itr_next(&itr) != UNDEFINED)
+        count++;
+    assert(count == 35);
+}
+
 int main(void)
 {
     printf("Testing Bitset Fill All and Empty.\n");
@@ -113,6 +136,8 @@ int main(void)
     test_bitset_insertions_at_boundry();
     printf("Testing Bitset Iterator.\n");
     test_bitset_iterator();
+    printf("Testing partial words and invalid indices.\n");
+    test_partial_word_and_invalid_indices();
 
     printf("-------------------------------------------------------------------------------\n");
     printf("Bitset Tests Passed :)\n");

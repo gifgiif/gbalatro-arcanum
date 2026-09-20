@@ -1,10 +1,12 @@
 #include "blind_select.h"
 
+#include "alchemical_object.h"
 #include "affine_background.h"
 #include "audio_utils.h"
 #include "background_blind_select_gfx.h"
 #include "blind.h"
 #include "button.h"
+#include "economy_rules.h"
 #include "game.h"
 #include "game_variables.h"
 #include "graphic_utils.h"
@@ -25,15 +27,15 @@ static const u32 BLIND_SELECT_BTN_SELECTED_BORDER_PID = 18;
 static const u32 TM_DISP_BLIND_PANEL_FINISH = 7;
 static const u32 TM_DISP_BLIND_PANEL_START = 1;
 
-static int s_timer;
+static int timer;
 
-static void blind_select_start_anim_seq(void);
-static void blind_select_handle_input(void);
-static void blind_select_selected_anim_seq(void);
-static void blind_select_display_blind_panel(void);
-static void blind_select_exit(void);
-static Rect blind_select_get_req_score_rect(enum BlindTokens blind);
-static void blind_select_print_blinds_reqs_and_rewards(void);
+static void game_blind_select_start_anim_seq(void);
+static void game_blind_select_handle_input(void);
+static void game_blind_select_selected_anim_seq(void);
+static void game_blind_select_display_blind_panel(void);
+static void game_blind_select_exit(void);
+static Rect game_blind_select_get_req_score_rect(enum BlindTokens blind);
+static void game_blind_select_print_blinds_reqs_and_rewards(void);
 static enum BlindType get_blind_type_from_token(enum BlindTokens blind);
 static void blind_tokens_init(void);
 
@@ -47,16 +49,14 @@ enum BlindSelectState
     BLIND_SELECT_MAX,
 };
 
-// clang-format off
-static StateInfo state_info[] =
-{
-    [START_ANIM_SEQ]            = STATE_INFO_UPDATE_FN_ONLY(blind_select_start_anim_seq),
-    [BLIND_SELECT]              = STATE_INFO_UPDATE_FN_ONLY(blind_select_handle_input),
-    [BLIND_SELECTED_ANIM_SEQ]   = STATE_INFO_UPDATE_FN_ONLY(blind_select_selected_anim_seq),
-    [DISPLAY_BLIND_PANEL]       = STATE_INFO_UPDATE_FN_ONLY(blind_select_display_blind_panel),
-    [BLIND_SELECT_EXIT]         = STATE_INFO_UPDATE_FN_ONLY(blind_select_exit),
+// TODO: this will be refactored into common state machine
+static StateInfo state_info[] = {
+    STATE_INFO_UPDATE_FN_ONLY(game_blind_select_start_anim_seq),
+    STATE_INFO_UPDATE_FN_ONLY(game_blind_select_handle_input),
+    STATE_INFO_UPDATE_FN_ONLY(game_blind_select_selected_anim_seq),
+    STATE_INFO_UPDATE_FN_ONLY(game_blind_select_display_blind_panel),
+    STATE_INFO_UPDATE_FN_ONLY(game_blind_select_exit),
 };
-// clang-format on
 
 static StateMachine blind_select_sm = STATE_MACHINE_DEFINE(state_info, BLIND_SELECT_MAX);
 
@@ -77,21 +77,56 @@ static const u32 BLIND_LEFT_X = 80;
 static const u32 BLIND_CENTER_X = 120;
 static const u32 BLIND_RIGHT_X = 160;
 
-static const u32 BLIND_ROW = 0;
-static const u32 SKIP_ROW = 1;
+enum BlindSelectionRow
+{
+    BLIND_ROW = 0,
+    SKIP_ROW = 1
+};
 
 static int selection_x = 0;
 static int selection_y = 0;
 
 static Sprite* blind_select_tokens[NUM_BLINDS_PER_ANTE] = {NULL};
+static AlchemicalObject* blind_select_alchemicals[ALCHEMICAL_HELD_LIMIT] = {NULL};
+static int exit_cleanup_step = 0;
 
-static void blind_select_start_anim_seq()
+static void blind_select_alchemicals_init(void)
+{
+    static const int icon_x[ALCHEMICAL_HELD_LIMIT] = {175, 191, 207};
+    alchemical_object_init();
+    for (int i = 0; i < ALCHEMICAL_HELD_LIMIT; i++)
+    {
+        alchemical_object_destroy(&blind_select_alchemicals[i]);
+        if (i >= g_game_vars.alchemy.count)
+            continue;
+        blind_select_alchemicals[i] =
+            alchemical_object_new(g_game_vars.alchemy.held[i], i);
+        if (blind_select_alchemicals[i] != NULL)
+        {
+            sprite_object_position(
+                blind_select_alchemicals[i]->sprite_object,
+                icon_x[i],
+                16
+            );
+        }
+    }
+}
+
+static void blind_select_alchemicals_destroy(void)
+{
+    for (int i = 0; i < ALCHEMICAL_HELD_LIMIT; i++)
+        alchemical_object_destroy(&blind_select_alchemicals[i]);
+}
+
+static void game_blind_select_start_anim_seq()
 {
     // main_bg_se_copy_rect_1_tile_vert(POP_MENU_ANIM_RECT, SCREEN_UP);
     main_bg_se_copy_rect_1_tile_vert(POP_MENU_ANIM_RECT, SCREEN_UP);
 
     for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
     {
+        if (blind_select_tokens[i] == NULL)
+            continue;
         sprite_position(
             blind_select_tokens[i],
             blind_select_tokens[i]->pos.x,
@@ -99,15 +134,15 @@ static void blind_select_start_anim_seq()
         );
     }
 
-    if (s_timer == TM_END_ANIM_SEQ)
+    if (timer == TM_END_ANIM_SEQ)
     {
-        blind_select_print_blinds_reqs_and_rewards();
+        game_blind_select_print_blinds_reqs_and_rewards();
         state_machine_change_state(&blind_select_sm, BLIND_SELECT);
-        s_timer = TM_ZERO; // Reset the timer
+        timer = TM_ZERO; // Reset the timer
     }
 }
 
-static inline void blind_select_erase_blind_reqs_and_rewards()
+static inline void game_blind_select_erase_blind_reqs_and_rewards()
 {
     for (enum BlindTokens curr_blind = SMALL_BLIND; curr_blind < NUM_BLINDS_PER_ANTE; curr_blind++)
     {
@@ -155,7 +190,6 @@ void increment_blind(enum BlindState increment_reason)
     }
 }
 
-// TODO: convert these to proper buttons.
 static inline void highlight_select_button(void)
 {
     memset16(&pal_bg_mem[BLIND_SELECT_BTN_SELECTED_BORDER_PID], 0xFFFF, 1);
@@ -172,9 +206,9 @@ static inline void highlight_skip_button(void)
     memset16(&pal_bg_mem[BLIND_SKIP_BTN_SELECTED_BORDER_PID], 0xFFFF, 1);
 }
 
-static void blind_select_handle_input()
+static void game_blind_select_handle_input()
 {
-    if (s_timer == TM_BLIND_SELECT_START && g_game_vars.current_blind == BLIND_TYPE_BOSS)
+    if (timer == TM_BLIND_SELECT_START && g_game_vars.current_blind == BLIND_TYPE_BOSS)
     {
         selection_y = BLIND_ROW;
     }
@@ -192,14 +226,14 @@ static void blind_select_handle_input()
     }
     else if (key_hit(SELECT_CARD))
     {
-        blind_select_erase_blind_reqs_and_rewards();
+        game_blind_select_erase_blind_reqs_and_rewards();
 
         switch (selection_y)
         {
             case BLIND_ROW:
                 play_sfx(SFX_BUTTON, MM_BASE_PITCH_RATE, BUTTON_SFX_VOLUME);
                 state_machine_change_state(&blind_select_sm, BLIND_SELECTED_ANIM_SEQ);
-                s_timer = TM_ZERO;
+                timer = TM_ZERO;
                 ++g_game_vars.round;
                 display_round();
                 break;
@@ -207,6 +241,23 @@ static void blind_select_handle_input()
                 if (g_game_vars.current_blind <= BLIND_TYPE_BIG)
                 {
                     play_sfx(SFX_BUTTON, MM_BASE_PITCH_RATE, BUTTON_SFX_VOLUME);
+
+                    /*
+                     * Desktop Balatro compensates a skip with a Tag, but this
+                     * build has no Tag system.  Pay a small bounded cash bonus
+                     * before advancing so Skip is a real strategic option,
+                     * while playing the Blind remains better because it also
+                     * awards remaining hands, interest, and a Shop visit.
+                     */
+                    int skip_reward = economy_get_skip_reward(
+                        blind_get_reward(g_game_vars.current_blind)
+                    );
+                    g_game_vars.money = economy_credit_money(
+                        g_game_vars.money,
+                        skip_reward
+                    );
+                    display_money();
+
                     increment_blind(BLIND_STATE_SKIPPED);
 
                     selection_y = BLIND_ROW; // Reset selection to first option
@@ -222,6 +273,8 @@ static void blind_select_handle_input()
 
                     for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
                     {
+                        if (blind_select_tokens[i] == NULL)
+                            continue;
                         sprite_position(
                             blind_select_tokens[i],
                             blind_select_tokens[i]->pos.x,
@@ -229,10 +282,10 @@ static void blind_select_handle_input()
                         );
                     }
 
-                    blind_select_print_blinds_reqs_and_rewards();
+                    game_blind_select_print_blinds_reqs_and_rewards();
                     highlight_select_button();
 
-                    s_timer = TM_ZERO;
+                    timer = TM_ZERO;
                 }
                 break;
             default:
@@ -241,9 +294,9 @@ static void blind_select_handle_input()
     }
 }
 
-static void blind_select_selected_anim_seq()
+static void game_blind_select_selected_anim_seq()
 {
-    if (s_timer < 15)
+    if (timer < 15)
     {
         Rect blinds_rect = POP_MENU_ANIM_RECT;
         blinds_rect.top -= 1; // Because of the raised blind
@@ -251,6 +304,8 @@ static void blind_select_selected_anim_seq()
 
         for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
         {
+            if (blind_select_tokens[i] == NULL)
+                continue;
             sprite_position(
                 blind_select_tokens[i],
                 blind_select_tokens[i]->pos.x,
@@ -258,28 +313,31 @@ static void blind_select_selected_anim_seq()
             );
         }
     }
-    else if (s_timer >= MENU_POP_OUT_ANIM_FRAMES)
+    else if (timer >= MENU_POP_OUT_ANIM_FRAMES)
     {
         for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
         {
-            sprite_hide(blind_select_tokens[i]);
+            if (blind_select_tokens[i] != NULL)
+                obj_hide(blind_select_tokens[i]->obj);
         }
 
-        s_timer = TM_ZERO;
+        timer = TM_ZERO;
         state_machine_change_state(&blind_select_sm, DISPLAY_BLIND_PANEL);
     }
 }
 
-static void blind_select_display_blind_panel()
+static void game_blind_select_display_blind_panel()
 {
-    if (s_timer >= TM_DISP_BLIND_PANEL_FINISH)
+    if (timer >= TM_DISP_BLIND_PANEL_FINISH)
     {
+        timer = TM_ZERO;
+        exit_cleanup_step = 0;
         state_machine_change_state(&blind_select_sm, BLIND_SELECT_EXIT);
         return;
     }
 
     // Switches to the selecting background and clears the blind panel area
-    if (s_timer == TM_DISP_BLIND_PANEL_START)
+    if (timer == TM_DISP_BLIND_PANEL_START)
     {
         change_background(BG_CARD_SELECTING, false);
 
@@ -297,9 +355,9 @@ static void blind_select_display_blind_panel()
     }
 
     // Shift the blind panel down onto screen
-    for (int y = 0; y < s_timer; y++)
+    for (int y = 0; y < timer; y++)
     {
-        int y_from = 26 + y - s_timer;
+        int y_from = 26 + y - timer;
         int y_to = 0 + y;
 
         Rect from = {0, y_from, 8, y_from};
@@ -309,13 +367,23 @@ static void blind_select_display_blind_panel()
     }
 }
 
-static void blind_select_exit(void)
+static void game_blind_select_exit(void)
 {
-    change_background(BG_NONE, false);
-    game_change_state(GAME_STATE_ROUND);
+    /* Blind and consumable objects are already hidden. Free one pair per
+     * frame instead of releasing every sprite immediately before the much
+     * heavier gameplay-state initialization. */
+    if (exit_cleanup_step < NUM_BLINDS_PER_ANTE)
+    {
+        sprite_destroy(&blind_select_tokens[exit_cleanup_step]);
+        if (exit_cleanup_step < ALCHEMICAL_HELD_LIMIT)
+            alchemical_object_destroy(&blind_select_alchemicals[exit_cleanup_step]);
+        exit_cleanup_step++;
+        return;
+    }
+    game_change_state(GAME_STATE_PLAYING);
 }
 
-static Rect blind_select_get_req_score_rect(enum BlindTokens blind)
+static Rect game_blind_select_get_req_score_rect(enum BlindTokens blind)
 {
     Rect blind_req_score_rect = SINGLE_BLIND_SEL_REQ_SCORE_RECT;
 
@@ -350,9 +418,9 @@ static enum BlindType get_blind_type_from_token(enum BlindTokens blind)
     return blind_type;
 }
 
-static inline void blind_select_print_blind_req(enum BlindTokens blind)
+static inline void game_blind_select_print_blind_req(enum BlindTokens blind)
 {
-    Rect blind_req_score_rect = blind_select_get_req_score_rect(blind);
+    Rect blind_req_score_rect = game_blind_select_get_req_score_rect(blind);
 
     u32 blind_req = blind_get_requirement(get_blind_type_from_token(blind), g_game_vars.ante);
 
@@ -374,10 +442,10 @@ static inline void blind_select_print_blind_req(enum BlindTokens blind)
     );
 }
 
-static inline void blind_select_print_blind_reward(enum BlindTokens blind)
+static inline void game_blind_select_print_blind_reward(enum BlindTokens blind)
 {
     int blind_reward = blind_get_reward(get_blind_type_from_token(blind));
-    Rect blind_reward_rect = blind_select_get_req_score_rect(blind);
+    Rect blind_reward_rect = game_blind_select_get_req_score_rect(blind);
 
     // The reward is right below the score.
     blind_reward_rect.top += TILE_SIZE;
@@ -397,12 +465,12 @@ static inline void blind_select_print_blind_reward(enum BlindTokens blind)
     );
 }
 
-static void blind_select_print_blinds_reqs_and_rewards(void)
+static void game_blind_select_print_blinds_reqs_and_rewards(void)
 {
     for (enum BlindTokens curr_blind = 0; curr_blind < NUM_BLINDS_PER_ANTE; curr_blind++)
     {
-        blind_select_print_blind_req(curr_blind);
-        blind_select_print_blind_reward(curr_blind);
+        game_blind_select_print_blind_req(curr_blind);
+        game_blind_select_print_blind_reward(curr_blind);
     }
 }
 
@@ -410,7 +478,10 @@ static inline void reroll_boss_blind(bool no_tiles)
 {
     // Showdown blinds only show up on ante 8, 16, etc...
     g_game_vars.next_boss_blind =
-        roll_blind_type((g_game_vars.ante % 8 == 0) && (g_game_vars.ante > 0));
+        roll_blind_type(
+            (g_game_vars.ante % 8 == 0) && (g_game_vars.ante > 0),
+            g_game_vars.ante
+        );
     if (!no_tiles)
     {
         apply_blind_tiles(g_game_vars.next_boss_blind, BOSS_BLIND_TOKEN_LAYER);
@@ -447,18 +518,20 @@ static void blind_tokens_init()
 
     for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
     {
-        sprite_hide(blind_select_tokens[i]);
+        if (blind_select_tokens[i] != NULL)
+            obj_hide(blind_select_tokens[i]->obj);
     }
 }
 
-void blind_select_on_init(void)
+void game_blind_select_on_init(void)
 {
-    s_timer = TM_ZERO;
+    timer = TM_ZERO;
     state_machine_register(&blind_select_sm);
     state_machine_change_state(&blind_select_sm, START_ANIM_SEQ);
 
     selection_x = 0;
     selection_y = 0;
+    exit_cleanup_step = 0;
 
     blind_tokens_init();
 
@@ -466,18 +539,18 @@ void blind_select_on_init(void)
     // this probably shouldn't be here. also need to force redraw or the callback
     // doesn't run that moves the tokens. that should probably happen here.
     change_background(BG_BLIND_SELECT, true);
+    blind_select_alchemicals_init();
 
     highlight_select_button();
 
-    play_sfx(SFX_POP, MM_BASE_PITCH_RATE, SFX_DEFAULT_VOLUME);
 }
 
-void blind_select_on_update(void)
+void game_blind_select_on_update(void)
 {
-    s_timer++;
+    timer++;
 }
 
-void blind_select_on_exit(void)
+void game_blind_select_on_exit(void)
 {
     // For some reason that I haven't figured out yet,
     // if I don't destroy the blind tokens they won't
@@ -485,33 +558,46 @@ void blind_select_on_exit(void)
     sprite_destroy(&blind_select_tokens[SMALL_BLIND]);
     sprite_destroy(&blind_select_tokens[BIG_BLIND]);
     sprite_destroy(&blind_select_tokens[BOSS_BLIND]);
+    blind_select_alchemicals_destroy();
 
-    change_background(BG_NONE, false);
+    reset_background();
     selection_y = 0;
 
     state_machine_remove(&blind_select_sm);
 }
 
-void blind_select_change_background(void)
+void game_blind_select_change_background(void)
 {
     for (int i = 0; i < NUM_BLINDS_PER_ANTE; i++)
     {
-        sprite_unhide(blind_select_tokens[i]);
+        if (blind_select_tokens[i] != NULL)
+            obj_unhide(blind_select_tokens[i]->obj, ATTR0_REG);
     }
 
     // Default y position for the blind select tokens. 12 is the amount of tiles the background
     // is shifted down by
     const int default_y = 89 + (TILE_SIZE * 12);
     // TODO refactor magic numbers '80/120/160' into a map to loop with
-    sprite_position(blind_select_tokens[SMALL_BLIND], BLIND_LEFT_X, default_y);
-    sprite_position(blind_select_tokens[BIG_BLIND], BLIND_CENTER_X, default_y);
-    sprite_position(blind_select_tokens[BOSS_BLIND], BLIND_RIGHT_X, default_y);
+    if (blind_select_tokens[SMALL_BLIND] != NULL)
+        sprite_position(blind_select_tokens[SMALL_BLIND], BLIND_LEFT_X, default_y);
+    if (blind_select_tokens[BIG_BLIND] != NULL)
+        sprite_position(blind_select_tokens[BIG_BLIND], BLIND_CENTER_X, default_y);
+    if (blind_select_tokens[BOSS_BLIND] != NULL)
+        sprite_position(blind_select_tokens[BOSS_BLIND], BLIND_RIGHT_X, default_y);
 
     toggle_windows(false, true);
 
     GRIT_CPY(pal_bg_mem, background_blind_select_gfxPal);
-    GRIT_CPY(&tile_mem[MAIN_BG_CBB], background_blind_select_gfxTiles);
-    GRIT_CPY(&se_mem[MAIN_BG_SBB], background_blind_select_gfxMap);
+    dma3_cpy(
+        &tile_mem[MAIN_BG_CBB],
+        background_blind_select_gfxTiles,
+        background_blind_select_gfxTilesLen
+    );
+    dma3_cpy(
+        &se_mem[MAIN_BG_SBB],
+        background_blind_select_gfxMap,
+        background_blind_select_gfxMapLen
+    );
 
     // Copy boss blind colors to blind select palette
     memset16(
@@ -593,6 +679,8 @@ void blind_select_change_background(void)
                 main_bg_se_copy_rect(gap_fill_rect, gap_fill_point);
 
                 // Move token up by a tile
+                if (blind_select_tokens[i] == NULL)
+                    break;
                 sprite_position(
                     blind_select_tokens[i],
                     blind_select_tokens[i]->pos.x,

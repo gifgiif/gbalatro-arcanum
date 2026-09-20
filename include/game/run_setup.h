@@ -9,21 +9,21 @@
 /**
  * @brief Change to the Run Setup menu background
  */
-void run_setup_change_background(void);
+void game_run_setup_change_background(void);
 
 /**
  * @brief Run Setup menu state initialization
  */
-void run_setup_on_init(void);
+void game_run_setup_on_init(void);
 
 /**
  * @brief Run Setup menu state update
  */
-void run_setup_on_update(void);
+void game_run_setup_on_update(void);
 
 /**
  * @brief Run Setup menu cleanup
  */
-void run_setup_on_exit(void);
+void game_run_setup_on_exit(void);
 
 #endif // GAME_RUN_SETUP_H

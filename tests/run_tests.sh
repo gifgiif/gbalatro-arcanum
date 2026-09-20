@@ -20,3 +20,9 @@ run_test bitset
 run_test list
 run_test pool
 run_test util
+run_test alchemy
+run_test voucher
+run_test deck_rules
+run_test planet
+run_test boss_rules
+run_test balance

@@ -16,8 +16,8 @@
 #define CARD_SPRITE_SIZE                  32
 #define MAX_AFFINES                       32
 #define MAX_SPRITES                       128
-#define MAX_SPRITE_OBJECTS                16
-#define SPRITE_FOCUS_RAISE_PX             10
+#define MAX_SPRITE_OBJECTS                28
+#define SPRITE_FOCUS_RAISE_PX             4
 #define CARD_FOCUS_SFX_PITCH_OFFSET_RANGE 512
 
 /** @} */
@@ -45,13 +45,7 @@ typedef struct
     /**
      * @brief Sprite index in memory managed by GBAlatro
      */
-    s16 idx;
-
-    /**
-     * @brief The mode of the sprite (regular, affine, etc.), set when the sprite is created
-     * corresponds to A0 & ATTR0_MODE_MASK
-     */
-    u16 mode;
+    int idx;
 } Sprite;
 
 /**
@@ -127,7 +121,7 @@ typedef struct
  * @return Valid Sprite if allocations are successful.
  *         Otherwise, return **NULL**.
  */
-Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, s16 sprite_index);
+Sprite* sprite_new(u16 a0, u16 a1, u32 tid, u32 pb, int sprite_index);
 
 /**
  * @brief Destroy Sprite
@@ -143,7 +137,7 @@ void sprite_destroy(Sprite** sprite);
  *
  * @return Index of sprite in object buffer if `sprite` is valid, otherwise **UNDEFINED**.
  */
-s16 sprite_get_layer(Sprite* sprite);
+int sprite_get_layer(Sprite* sprite);
 
 /**
  * @brief Get a Sprite's width and height
@@ -190,19 +184,6 @@ bool sprite_get_width(Sprite* sprite, int* width);
 int sprite_get_pb(const Sprite* sprite);
 
 /**
- * @brief Hides the sprite by manipulating ATTR0_HIDE in OAM.
- * @param sprite The sprite to hide
- */
-void sprite_hide(Sprite* sprite);
-
-/**
- * @brief Unhides the sprite by manipulating ATTR0_HIDE in OAM.
- * The sprite's ATTR0_MODE is maintained from the sprite's creation with @ref sprite_new()
- * @param sprite The sprite to unhide
- */
-void sprite_unhide(Sprite* sprite);
-
-/**
  * @brief Initialize GBAlatro sprite system
  */
 void sprite_init(void);
@@ -213,24 +194,23 @@ void sprite_init(void);
 void sprite_draw(void);
 
 /**
- * @brief Initialize a SpriteObject to a default state.
- * Must be called only once per SpriteObject when it is created.
+ * @brief Allocate and retrieve a pointer to a valid SpriteObject
  *
- * @param sprite_object - The SpriteObject to initialize
+ * @return A valid pointer to an newly allocated SpriteObject
+ *         if successful, othewise return **NULL**.
  */
-void sprite_object_init(SpriteObject* sprite_object);
+SpriteObject* sprite_object_new();
 
 /**
  * @brief Destroy SpriteObject
  *
- * Destroy a SpriteObject by releasing its associated resources (e.g. the sprite).
- * This invalidates the SpriteObject and it should not be used after destroyed,
- * a new one should be created instead.
+ * Destroy a SpriteObject by freeing it back to the pool and releasing its
+ * associated resources
  *
- * @param sprite_object pointer to a SpriteObject to destroy.
+ * @param sprite_object pointer to a pointer of SpriteObject to destroy.
  *        Cannot be **NULL**.
  */
-void sprite_object_destroy(SpriteObject* sprite_object);
+void sprite_object_destroy(SpriteObject** sprite_object);
 
 /**
  * @brief Register a Sprite to an associated SpriteObject
@@ -242,19 +222,6 @@ void sprite_object_destroy(SpriteObject* sprite_object);
  *                      Cannot be **NULL**.
  */
 void sprite_object_set_sprite(SpriteObject* sprite_object, Sprite* sprite);
-
-/**
- * @brief Hides the SpriteObject by manipulating ATTR0_HIDE in OAM.
- * @param sprite_object The SpriteObject to hide
- */
-void sprite_object_hide(SpriteObject* sprite_object);
-
-/**
- * @brief Unhides the SpriteObject by manipulating ATTR0_HIDE in OAM.
- * The sprite's ATTR0_MODE is maintained from the sprite's creation with @ref sprite_new()
- * @param sprite_object The SpriteObject to unhide
- */
-void sprite_object_unhide(SpriteObject* sprite_object);
 
 /**
  * @brief Reset SpriteObject's transform back to default values.

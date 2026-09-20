@@ -4,6 +4,32 @@
 #include <stdint.h>
 #include <stdio.h>
 
+static void null_inputs_are_safe(void)
+{
+    assert(list_is_empty(NULL));
+    assert(list_get_len(NULL) == 0);
+    assert(!list_push_front(NULL, NULL));
+    assert(!list_push_back(NULL, NULL));
+    assert(!list_swap(NULL, 0, 0));
+    assert(list_get_at_idx(NULL, 0) == NULL);
+    assert(!list_remove_at_idx(NULL, 0));
+    assert(!list_remove_data(NULL, NULL));
+    assert(list_itr_next(NULL) == NULL);
+
+    ListItr itr = list_itr_create(NULL);
+    assert(itr.list == NULL);
+    assert(list_itr_next(&itr) == NULL);
+    list_itr_remove_current_node(&itr);
+    list_clear(NULL);
+
+    List list = list_init();
+    assert(!list_push_front(&list, NULL));
+    assert(!list_push_back(&list, NULL));
+    list_insert(&list, NULL, 0);
+    assert(list_is_empty(&list));
+    assert(list_get_len(&list) == 0);
+}
+
 // As simple as it gets, just needs to be initialized correctly
 // - list_init
 // - list_is_empty
@@ -730,8 +756,39 @@ void test_remove_data(void)
     assert(list_is_empty(&my_cool_list));
 }
 
+static void test_pool_exhaustion_is_non_destructive(void)
+{
+    List list = list_init();
+    int values[MAX_LIST_NODES + 2];
+
+    for (int i = 0; i < MAX_LIST_NODES; i++)
+    {
+        values[i] = i;
+        assert(list_push_back(&list, &values[i]));
+    }
+    assert(list_get_len(&list) == MAX_LIST_NODES);
+    assert(list.tail->data == &values[MAX_LIST_NODES - 1]);
+
+    /* A full fixed GBA pool must reject additions without corrupting links. */
+    assert(!list_push_back(&list, &values[MAX_LIST_NODES]));
+    assert(!list_push_front(&list, &values[MAX_LIST_NODES + 1]));
+    list_insert(&list, &values[MAX_LIST_NODES], MAX_LIST_NODES / 2);
+    assert(list_get_len(&list) == MAX_LIST_NODES);
+    assert(list.head->data == &values[0]);
+    assert(list.tail->data == &values[MAX_LIST_NODES - 1]);
+
+    list_clear(&list);
+    assert(list_is_empty(&list));
+
+    /* Invalid containers are ignored instead of being dereferenced. */
+    assert(!list_push_back(NULL, &values[0]));
+    assert(!list_push_front(NULL, &values[0]));
+    list_insert(NULL, &values[0], 0);
+}
+
 int main(void)
 {
+    null_inputs_are_safe();
     printf("Testing List Create and Clear.\n");
     create_and_clear_list();
 
@@ -752,6 +809,9 @@ int main(void)
 
     printf("Testing List Remove Data.\n");
     test_remove_data();
+
+    printf("Testing List Pool Exhaustion.\n");
+    test_pool_exhaustion_is_non_destructive();
 
     printf("-------------------------------------------------------------------------------\n");
     printf("List Tests Passed :)\n");

@@ -11,21 +11,21 @@
 /**
  * @brief Change the main menu background
  */
-void main_menu_change_background(void);
+void game_main_menu_change_background(void);
 
 /**
  * @brief Main menu state initialization
  */
-void main_menu_on_init(void);
+void game_main_menu_on_init(void);
 
 /**
  * @brief Main menu state update
  */
-void main_menu_on_update(void);
+void game_main_menu_on_update(void);
 
 /**
  * @brief Main menu cleanup (called when transitioning to game start)
  */
-void main_menu_on_exit(void);
+void game_main_menu_on_exit(void);
 
 #endif // GAME_MAIN_MENU_H
